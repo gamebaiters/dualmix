@@ -1,0 +1,7 @@
+{
+  "product": "DualMix",
+  "version": "2.2.0",
+  "url": "https://github.com/gamebaiters/dualmix/releases/download/v2.2.0/DualMix-2.2.0-win-x64.zip",
+  "sha256": "2724cc4f13972a93d25cb4e794b439d4e8600c61b84802b65756ede67aaaeaaa",
+  "notes": "GitHub: auto-builder CI/Release, README con diagrammi e screenshot, template issue e licenza MIT"
+}
