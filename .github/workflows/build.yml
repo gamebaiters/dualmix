@@ -37,6 +37,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\NSIS\makensis.exe') -and -not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
+          }
+
       - name: Check PowerShell scripts syntax
         shell: pwsh
         run: |
@@ -61,7 +68,7 @@ jobs:
       - name: Build package and NSIS installer
         shell: bash
         run: |
-          tools/build-release.sh --exe dualmix-rs/target/release/DualMix.exe --notes "CI build (${GITHUB_SHA::7})"
+          tools/build-release.sh --exe dualmix-rs/target/release/DualMix.exe --notes "CI build (${GITHUB_SHA::7})" --require-installer
           (cd out/release && sha256sum -c SHA256SUMS.txt)
           py=python3; command -v python3 >/dev/null && python3 -c "import sys" 2>/dev/null || py=python
           "$py" -c "import json; d = json.load(open('out/release/version.json')); assert d['product'] == 'DualMix' and len(d['sha256']) == 64"
