@@ -33,6 +33,10 @@ jobs:
         with:
           workspaces: dualmix-rs
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Check PowerShell scripts syntax
         shell: pwsh
         run: |
@@ -59,7 +63,8 @@ jobs:
         run: |
           tools/build-release.sh --exe dualmix-rs/target/release/DualMix.exe --notes "CI build (${GITHUB_SHA::7})"
           (cd out/release && sha256sum -c SHA256SUMS.txt)
-          python3 -c "import json; d = json.load(open('out/release/version.json')); assert d['product'] == 'DualMix' and len(d['sha256']) == 64"
+          py=python3; command -v python3 >/dev/null && python3 -c "import sys" 2>/dev/null || py=python
+          "$py" -c "import json; d = json.load(open('out/release/version.json')); assert d['product'] == 'DualMix' and len(d['sha256']) == 64"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

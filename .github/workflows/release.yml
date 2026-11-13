@@ -37,6 +37,10 @@ jobs:
         with:
           workspaces: dualmix-rs
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Resolve version
         shell: bash
         run: |

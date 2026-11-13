@@ -246,7 +246,16 @@ impl Controller {
         knob.attach(keyboard.clone());
 
         let version = env!("CARGO_PKG_VERSION").to_string();
-        let updater = Arc::new(Updater::new(version.clone()));
+        let updater = Arc::new(Updater::new(version.clone(), settings.update_feed.as_deref()));
+
+        if !dry_run {
+            // Keep the autostart task pointing at the current installation (e.g. after upgrading from .NET v2.3.0).
+            if settings.start_with_windows && !system_integration::autostart_is_current() {
+                system_integration::autostart_set(true);
+            } else if !settings.start_with_windows && system_integration::autostart_is_enabled() {
+                system_integration::autostart_set(false);
+            }
+        }
 
         let mut c = Self {
             settings,

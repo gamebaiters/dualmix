@@ -40,10 +40,16 @@ pub struct Updater {
 }
 
 impl Updater {
-    pub fn new(current_version: impl Into<String>) -> Self {
+    pub fn new(current_version: impl Into<String>, settings_feed: Option<&str>) -> Self {
         let feed_url = std::env::var("DUALMIX_UPDATE_FEED")
             .ok()
             .filter(|s| !s.trim().is_empty())
+            .or_else(|| {
+                settings_feed
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            })
             .unwrap_or_else(|| DEFAULT_UPDATE_FEED.to_string());
         Self {
             current_version: current_version.into(),
@@ -203,10 +209,66 @@ impl Updater {
     }
 }
 
-fn fetch_manifest(url: &str) -> Result<VersionManifest, String> {
-    let bytes = download_bytes(url)?;
+fn manifest_path_for_feed(feed: &str) -> PathBuf {
+    let p = Path::new(feed);
+    if p.is_dir() {
+        p.join("version.json")
+    } else {
+        p.to_path_buf()
+    }
+}
+
+fn resolve_url(url: &str, feed: &str) -> Result<String, String> {
+    let u = url.trim();
+    if u.is_empty() {
+        return Err("Missing update package URL".to_string());
+    }
+    if u.starts_with("http://") {
+        return Err("Refusing non-HTTPS update URL".to_string());
+    }
+    if u.starts_with("https://") || u.starts_with("file:///") {
+        return Ok(u.to_string());
+    }
+    if feed.starts_with("https://") {
+        let base = match feed.rfind('/') {
+            Some(pos) => &feed[..=pos],
+            None => feed,
+        };
+        return Ok(format!("{base}{}", u.trim_start_matches("./")));
+    }
+    if Path::new(u).is_absolute() {
+        return Ok(u.to_string());
+    }
+    let feed_path = manifest_path_for_feed(feed.strip_prefix("file:///").unwrap_or(feed));
+    let dir = feed_path.parent().unwrap_or_else(|| Path::new("."));
+    Ok(dir.join(u).to_string_lossy().into_owned())
+}
+
+fn parse_manifest_str(text: &str, feed: &str) -> Result<VersionManifest, String> {
+    let clean = text.trim_start_matches('\u{FEFF}');
+    let mut m = serde_json::from_str::<VersionManifest>(clean)
+        .map_err(|e| format!("Invalid JSON manifest: {e}"))?;
+    if !m.product.eq_ignore_ascii_case("DualMix") {
+        return Err("Manifest is not for DualMix".to_string());
+    }
+    let sha = m.sha256.trim();
+    if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("Missing or invalid package SHA-256".to_string());
+    }
+    m.sha256 = sha.to_string();
+    m.url = resolve_url(&m.url, feed)?;
+    Ok(m)
+}
+
+fn fetch_manifest(feed: &str) -> Result<VersionManifest, String> {
+    let bytes = if feed.starts_with("https://") || feed.starts_with("http://") || feed.starts_with("file:///") {
+        download_bytes(feed)?
+    } else {
+        let p = manifest_path_for_feed(feed);
+        std::fs::read(&p).map_err(|e| format!("Read {}: {e}", p.display()))?
+    };
     let text = String::from_utf8(bytes).map_err(|e| format!("Invalid UTF-8 manifest: {e}"))?;
-    serde_json::from_str::<VersionManifest>(&text).map_err(|e| format!("Invalid JSON manifest: {e}"))
+    parse_manifest_str(&text, feed)
 }
 
 fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
@@ -264,10 +326,14 @@ fn download_and_launch_update(manifest: &VersionManifest, on_installing: impl Fn
     if !setup_ps1.exists() {
         return Err("Update archive missing setup/setup.ps1".to_string());
     }
-    let app_dir = if source_root.join("app").join("DualMix.exe").exists() {
+    let app_dir = if source_root.join("app").join("DualMix.exe").exists()
+        || source_root.join("app").join("DualMix.dll").exists()
+    {
         source_root.join("app")
-    } else {
+    } else if source_root.join("DualMix.exe").exists() {
         source_root.clone()
+    } else {
+        return Err("Update archive missing app payload".to_string());
     };
 
     let cmd = format!(
@@ -298,4 +364,36 @@ fn locate_payload_root(extract_dir: &Path) -> PathBuf {
         }
     }
     extract_dir.to_path_buf()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_update_urls_and_reject_http() {
+        assert_eq!(
+            resolve_url("DualMix-2.4.0-win-x64.zip", "https://example.com/releases/version.json").unwrap(),
+            "https://example.com/releases/DualMix-2.4.0-win-x64.zip"
+        );
+        assert_eq!(
+            resolve_url("https://cdn.example.com/pkg.zip", "https://example.com/version.json").unwrap(),
+            "https://cdn.example.com/pkg.zip"
+        );
+        assert!(resolve_url("http://insecure.example.com/pkg.zip", "https://example.com/version.json").is_err());
+
+        let local = resolve_url("DualMix-2.4.0.zip", r"C:\updates\version.json").unwrap();
+        assert!(local.ends_with("DualMix-2.4.0.zip"));
+    }
+
+    #[test]
+    fn parses_manifest_with_utf8_bom() {
+        let raw = format!(
+            "\u{FEFF}{{\"product\":\"DualMix\",\"version\":\"2.5.0\",\"url\":\"DualMix-2.5.0.zip\",\"sha256\":\"{}\"}}",
+            "a".repeat(64)
+        );
+        let m = parse_manifest_str(&raw, "https://example.com/version.json").unwrap();
+        assert_eq!(m.version, "2.5.0");
+        assert_eq!(m.url, "https://example.com/DualMix-2.5.0.zip");
+    }
 }

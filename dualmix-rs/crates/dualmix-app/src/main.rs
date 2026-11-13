@@ -172,10 +172,13 @@ fn run_supervisor(args: &[String]) -> i32 {
             }
             if let Some(ev) = exit_ev {
                 if unsafe { WaitForSingleObject(ev, 0) } == WAIT_OBJECT_0 {
-                    // Graceful exit requested; wait briefly for child
-                    std::thread::sleep(Duration::from_millis(500));
-                    if let Ok(Some(st)) = child.try_wait() {
-                        break st.code().unwrap_or(0);
+                    // Graceful exit requested; give child up to 5s to shut down cleanly
+                    for _ in 0..100 {
+                        if let Ok(Some(st)) = child.try_wait() {
+                            unsafe { let _ = CloseHandle(ev); }
+                            return st.code().unwrap_or(0);
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
                     }
                 }
             }
@@ -332,6 +335,7 @@ struct AppHostState {
     exit_ev: windows::Win32::Foundation::HANDLE,
     running: std::cell::Cell<bool>,
     auto_update_checked: std::cell::Cell<bool>,
+    auto_update_handled: std::cell::Cell<bool>,
     started_at: std::time::Instant,
 }
 
@@ -567,7 +571,6 @@ fn run_interactive_app(args: &[String]) -> i32 {
                         host.open_main();
                     }
                     if !host.exit_ev.is_invalid() && WaitForSingleObject(host.exit_ev, 0) == windows::Win32::Foundation::WAIT_OBJECT_0 {
-                        let _ = ResetEvent(host.exit_ev);
                         host.shutdown(hwnd);
                         return LRESULT(0);
                     }
@@ -579,13 +582,39 @@ fn run_interactive_app(args: &[String]) -> i32 {
                         let mode = host.ctrl.borrow().settings.update_mode;
                         if mode != UpdateMode::Off {
                             let upd = host.ctrl.borrow().updater.clone();
-                            let wake = host.ctrl.borrow().updater.clone();
-                            let _ = wake;
                             let hwnd_raw = hwnd.0 as isize;
                             upd.check_async(false, move || {
                                 let h = HWND(hwnd_raw as *mut _);
                                 let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(h, controller::WM_APP_WAKE, WPARAM(0), LPARAM(0));
                             });
+                        }
+                    } else if host.auto_update_checked.get() && !host.auto_update_handled.get() {
+                        let snap = host.ctrl.borrow().updater.snapshot();
+                        if !snap.busy {
+                            if snap.phase == crate::updater::UpdatePhase::Available {
+                                host.auto_update_handled.set(true);
+                                let mode = host.ctrl.borrow().settings.update_mode;
+                                let ver = snap.available_version.clone().unwrap_or_default();
+                                if mode == UpdateMode::Auto {
+                                    host.tray.show_balloon(
+                                        &dualmix_core::loc::get("Updater.BalloonTitle"),
+                                        &dualmix_core::loc::fmt("Updater.BalloonInstalling", &[&ver]),
+                                    );
+                                    let upd = host.ctrl.borrow().updater.clone();
+                                    let hwnd_raw = hwnd.0 as isize;
+                                    upd.install_async(move || {
+                                        let h = HWND(hwnd_raw as *mut _);
+                                        let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(h, controller::WM_APP_WAKE, WPARAM(0), LPARAM(0));
+                                    });
+                                } else if mode == UpdateMode::Notify {
+                                    host.tray.show_balloon(
+                                        &dualmix_core::loc::fmt("Updater.BalloonAvailableTitle", &[&ver]),
+                                        &dualmix_core::loc::get("Updater.BalloonManual"),
+                                    );
+                                }
+                            } else if !matches!(snap.phase, crate::updater::UpdatePhase::Checking) {
+                                host.auto_update_handled.set(true);
+                            }
                         }
                     }
                     LRESULT(0)
@@ -684,6 +713,7 @@ fn run_interactive_app(args: &[String]) -> i32 {
         exit_ev,
         running: Cell::new(true),
         auto_update_checked: Cell::new(false),
+        auto_update_handled: Cell::new(false),
         started_at: Instant::now(),
     });
 

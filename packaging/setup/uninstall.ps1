@@ -52,8 +52,17 @@ if (Get-DualMixProcesses) {
     Get-DualMixProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
-# 2. virtual cables: factory names back, or drivers removed (elevated helper inside DualMix)
-if ($isNative -or ($hostExe -and (Test-Path $dll))) {
+# 2. virtual cables: factory names back, or drivers removed (elevated helper inside DualMix, only when VB-Audio is present)
+$needCableStep = $false
+if (Get-Command Get-PnpDevice -ErrorAction SilentlyContinue) {
+    $media = Get-PnpDevice -Class MEDIA -ErrorAction SilentlyContinue
+    $needCableStep = [bool]($media | Where-Object { $_.FriendlyName -like '*VB-Audio*' -or $_.InstanceId -like '*VBAudio*' })
+} else {
+    $sound = Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue
+    $needCableStep = [bool]($sound | Where-Object { $_.Name -like '*VB-Audio*' -or $_.PNPDeviceID -like '*VBAudio*' })
+}
+
+if ($needCableStep -and ($isNative -or ($hostExe -and (Test-Path $dll)))) {
     $result = Join-Path $env:TEMP 'dualmix-uninstall.json'
     Remove-Item $result -ErrorAction SilentlyContinue
     $what = if ($RemoveDrivers) { '--remove-drivers' } else { '--unconfigure' }

@@ -64,15 +64,32 @@ cp "$root/packaging/"*.cmd "$stage/"
 # Windows PowerShell 5.1 and cmd want CRLF line ends
 sed -i 's/\r$//; s/$/\r/' "$stage/setup/"*.ps1 "$stage/"*.cmd
 
+py_bin() {
+  if command -v python3 >/dev/null 2>&1 && python3 -c "import sys" >/dev/null 2>&1; then
+    echo "python3"
+  elif command -v python >/dev/null 2>&1 && python -c "import sys" >/dev/null 2>&1; then
+    echo "python"
+  else
+    echo "python3 or python not found" >&2
+    exit 1
+  fi
+}
+PY_CMD="$(py_bin)"
+
 make_zip() {
   local src_dir="$1" dest_zip="$2"
   if command -v zip >/dev/null 2>&1; then
     (cd "$src_dir" && zip -q -r -X "$dest_zip" .)
   else
-    python3 - "$src_dir" "$dest_zip" <<'PY'
+    local z_src="$src_dir" z_dst="$dest_zip"
+    if command -v cygpath >/dev/null 2>&1; then
+      z_src="$(cygpath -w "$src_dir")"
+      z_dst="$(cygpath -w "$dest_zip")"
+    fi
+    "$PY_CMD" - "$z_src" "$z_dst" <<'PY'
 import os, sys, zipfile
 src, dst = sys.argv[1], sys.argv[2]
-with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
+with zipfile.ZIP_DEFLATED and zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:
     for r, _, files in os.walk(src):
         for fn in sorted(files):
             p = os.path.join(r, fn)
@@ -94,7 +111,15 @@ if ! command -v makensis >/dev/null && [ -x "/c/Program Files (x86)/NSIS/makensi
 fi
 if command -v makensis >/dev/null; then
   echo "== installer"
-  makensis -V2 -DVERSION="$version" -DSTAGE="$stage" -DOUTFILE="$out/$exe_name" "$root/packaging/installer.nsi"
+  nsis_stage="$stage"
+  nsis_out="$out/$exe_name"
+  nsis_script="$root/packaging/installer.nsi"
+  if command -v cygpath >/dev/null 2>&1; then
+    nsis_stage="$(cygpath -w "$stage")"
+    nsis_out="$(cygpath -w "$out/$exe_name")"
+    nsis_script="$(cygpath -w "$root/packaging/installer.nsi")"
+  fi
+  makensis -V2 -DVERSION="$version" -DSTAGE="$nsis_stage" -DOUTFILE="$nsis_out" "$nsis_script"
 else
   echo "== installer skipped: makensis not found" >&2
 fi
@@ -102,7 +127,11 @@ fi
 sha="$(sha256sum "$out/$zip_name" | cut -d' ' -f1)"
 url="$zip_name"
 [ -n "$base_url" ] && url="$base_url/$zip_name"
-python3 - "$out/version.json" "$version" "$url" "$sha" "$notes" <<'PY'
+ver_json="$out/version.json"
+if command -v cygpath >/dev/null 2>&1; then
+  ver_json="$(cygpath -w "$ver_json")"
+fi
+"$PY_CMD" - "$ver_json" "$version" "$url" "$sha" "$notes" <<'PY'
 import json, sys
 path, version, url, sha, notes = sys.argv[1:6]
 doc = {"product": "DualMix", "version": version, "url": url, "sha256": sha}

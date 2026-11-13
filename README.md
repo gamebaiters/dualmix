@@ -6,7 +6,7 @@
   <a href="https://github.com/gamebaiters/dualmix/releases"><img src="https://img.shields.io/github/v/release/gamebaiters/dualmix?style=flat-square&color=40beff&label=Release" alt="Release"></a>
   <a href="https://github.com/gamebaiters/dualmix/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/gamebaiters/dualmix/build.yml?branch=main&style=flat-square&label=Build" alt="Build"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078d4?style=flat-square" alt="Windows 10/11 x64">
-  <img src="https://img.shields.io/badge/.NET-10.0%20WPF-512bd4?style=flat-square" alt=".NET 10 WPF">
+  <img src="https://img.shields.io/badge/Rust-Native%20Win32%20%2B%20WASAPI-dea584?style=flat-square" alt="Rust Native Win32 + WASAPI">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4ade80?style=flat-square" alt="MIT License"></a>
 </p>
 
@@ -27,8 +27,8 @@ Download the latest release from [**Releases**](https://github.com/gamebaiters/d
 2. **Portable ZIP Package (`DualMix-<v>-win-x64.zip`)** — extract and run **`Install DualMix.cmd`** (useful if Windows SmartScreen or antivirus flags the unsigned `.exe`; runs the exact same setup script).
 
 What the installer (`packaging/setup/setup.ps1`) does:
-- Automatically downloads and installs the **.NET 10 Desktop Runtime** (per-user in `%USERPROFILE%\.dotnet`) if missing on your PC.
-- Cleanly shuts down any running DualMix instance and upgrades older manual installations while **keeping your settings and virtual cables intact**.
+- Ships as a **standalone native executable (`DualMix.exe`, ~1.5 MB)** with **zero runtime dependencies** (no .NET installation needed).
+- Cleanly shuts down any running DualMix instance, uninstalls/replaces older versions (including legacy source builds and v2.x .NET installs), and **keeps your settings and virtual cables intact**.
 - Installs to `%LOCALAPPDATA%\Programs\DualMix`, adds a Start menu shortcut and a standard **Installed apps** entry, then launches DualMix.
 - Logs every setup step in `%APPDATA%\DualMix\setup.log`.
 
@@ -163,22 +163,23 @@ DualMix ships with both a **GitHub Actions CI/Release pipeline** and a built-in 
 
 ```text
 DualMix/
-├── DualMix/                     .NET 10 WPF source (win-x64, ReadyToRun)
-│   ├── Audio/                   AudioRouter (WASAPI), SincResampler, SessionEngine, Devices, DriverSetup
-│   ├── Core/                    Controller, Settings, Loc (EN/IT), Updater, SystemIntegration
-│   ├── Input/                   KeyboardHook (RegisterHotKey + WH_KEYBOARD_LL), KnobController
-│   ├── UI/                      MainWindow, SetupWindow, OsdWindow, TrayIcon, Pages
-│   └── Assets/                  dualmix.ico (multi-resolution 16..256 px)
+├── dualmix-rs/                  Native Rust workspace (win-x64, LTO single binary)
+│   ├── crates/dualmix-core/     DSP (160-tap sinc resampler, SPSC ring), settings, rules, loc (EN/IT)
+│   ├── crates/dualmix-audio/    WASAPI AudioRouter, SessionEngine, IPolicyConfig, AudioPolicyConfig, DriverSetup
+│   ├── crates/dualmix-input/    KeyboardHook (RegisterHotKey + WH_KEYBOARD_LL), KnobController
+│   ├── crates/dualmix-ui/       Win32 GDI+ OSD, Shell_NotifyIconW Tray, Fluent 2 WebView2 UI
+│   └── crates/dualmix-app/      DualMix.exe entry point, Controller, Supervisor, Updater, --diag
+├── DualMix/                     Legacy .NET 10 WPF source (reference / v2.3.0)
 ├── packaging/
 │   ├── setup/                   setup.ps1, uninstall.ps1, rimuovi-vecchio.ps1 (auto EN/IT)
 │   ├── installer.nsi            NSIS installer script (English + Italian language tables)
 │   └── *.cmd / README.txt       Portable user launchers & docs
 ├── tools/
-│   ├── build-release.sh         Linux/CI release builder (publish + ZIP + NSIS + version.json + SHA256SUMS)
+│   ├── build-release.sh         Release builder (ZIP + NSIS + version.json + SHA256SUMS)
 │   ├── make_icon.py             Multi-size icon generator (Pillow)
-│   └── rilascia.sh              Optional local share deployment script
+│   └── rilascia.sh              Local release + Nextcloud deployment script
 ├── .github/workflows/
-│   ├── build.yml                CI on push/PR (C# build, PowerShell parser check, NSIS & ZIP packaging)
+│   ├── build.yml                CI on push/PR (Rust tests/build, PowerShell parser check, NSIS & ZIP)
 │   └── release.yml              Auto-builder on vX.Y.Z tag push -> GitHub Release + version.json commit
 ├── docs/images/                 Architecture diagrams, banner, and screenshots
 ├── install.ps1                  Build from source on Windows & install via setup.ps1
@@ -187,23 +188,23 @@ DualMix/
 
 ### Build from Source
 
-- **On Windows** (requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), auto-bootstrapped if missing):
+- **On Windows** (requires [Rust MSVC toolchain](https://rustup.rs)):
   ```powershell
   # Build Release and install to %LOCALAPPDATA%\Programs\DualMix
   powershell -ExecutionPolicy Bypass -File install.ps1
 
   # Or build only
-  dotnet build DualMix/DualMix.csproj -c Release
+  cargo build --manifest-path dualmix-rs/Cargo.toml --release
   ```
-- **On Linux / CI** (cross-compiles WPF via `EnableWindowsTargeting`; requires .NET 10 SDK, `zip`, `nsis`):
+- **On Linux / CI** (cross-builds / packages ZIP + NSIS + `version.json`):
   ```bash
-  tools/build-release.sh --notes "Release notes summary"
+  tools/build-release.sh --exe path/to/DualMix.exe --notes "Release notes summary"
   # Output in out/release/: DualMix-<v>-win-x64.zip, DualMix-Setup-<v>.exe, Remove-old-DualMix.zip, version.json, SHA256SUMS.txt
   ```
 
 ### Publishing a New Release (Auto-Builder)
 
-1. Bump `<Version>X.Y.Z</Version>` in `DualMix/DualMix.csproj` and commit to `main`.
+1. Bump `version = "X.Y.Z"` in `dualmix-rs/Cargo.toml` and commit to `main`.
 2. Create and push an annotated version tag:
    ```bash
    git tag -a vX.Y.Z -m "Short summary of what changed"
@@ -213,10 +214,10 @@ DualMix/
 
 ### Built-in CLI Tools
 
-- `dotnet DualMix.dll --diag [--quick] [--stress]` — runs audio/math/hook diagnostics and writes `%APPDATA%\DualMix\diag.txt`.
-- `dotnet DualMix.dll --wizard` — launches the 3-step Setup Wizard directly.
-- `dotnet DualMix.dll --lang en|it` — overrides UI language for testing (`auto`, `en`, `it`).
-- `dotnet DualMix.dll --snapshot <folder>` — captures PNG screenshots of the Setup Wizard and all UI pages cleanly without touching audio devices.
+- `DualMix.exe --diag [--quick] [--stress]` — runs audio/math/hook diagnostics and writes `%APPDATA%\DualMix\diag.txt`.
+- `DualMix.exe --wizard` — launches the 3-step Setup Wizard directly.
+- `DualMix.exe --lang en|it` — overrides UI language for testing (`auto`, `en`, `it`).
+- `DualMix.exe --snapshot <folder>` — captures PNG screenshots of the Setup Wizard and all UI pages cleanly without touching audio devices.
 - Application logs: `%APPDATA%\DualMix\dualmix.log`.
 
 ---
@@ -225,4 +226,4 @@ DualMix/
 
 - Released under the [**MIT License**](LICENSE).
 - Optional virtual audio routing uses [**VB-CABLE**](https://vb-audio.com/Cable/) by VB-Audio Software (donationware).
-- Built with [WPF-UI](https://github.com/lepoco/wpfui) and [NAudio](https://github.com/naudio/NAudio).
+- Built in native **Rust** with `windows-rs`, **WebView2**, and **WASAPI**.

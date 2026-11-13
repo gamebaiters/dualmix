@@ -381,8 +381,9 @@ impl Settings {
     }
 
     pub fn from_json_str(json: &str) -> Result<Self, serde_json::Error> {
-        let mut s: Self = serde_json::from_str(json)?;
-        let has_version = json.contains("\"Version\"");
+        let clean = json.trim_start_matches('\u{FEFF}');
+        let mut s: Self = serde_json::from_str(clean)?;
+        let has_version = clean.contains("\"Version\"");
         s.migrate(has_version);
         s.normalize();
         Ok(s)
@@ -475,5 +476,14 @@ mod tests {
         assert_eq!(s.mix, 1.0);
         assert_eq!(s.knob_step, 0.01);
         assert_eq!(s.mode, EngineMode::VirtualDevices);
+    }
+
+    #[test]
+    fn strips_utf8_bom() {
+        let bom = "\u{FEFF}{\"Version\":2,\"Mode\":\"PerApp\",\"Mix\":-0.3,\"Language\":\"Italian\"}";
+        let s = Settings::from_json_str(bom).unwrap();
+        assert_eq!(s.mode, EngineMode::PerApp);
+        assert!((s.mix - (-0.3)).abs() < 1e-9);
+        assert_eq!(s.language, LanguagePreference::Italian);
     }
 }

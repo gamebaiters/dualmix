@@ -182,17 +182,20 @@ try {
     $copiedOk = if ($isNative) { Test-Path (Join-Path $new 'DualMix.exe') } else { Test-Path (Join-Path $new 'DualMix.dll') }
     if (-not $copiedOk) { throw (T 'Failed to copy application files.' 'Copia del programma non riuscita.') }
 
-    # 3. close DualMix; the first time, clear away the installation made the old way
+    # 3. close DualMix; clear away any legacy/previous installation cleanly
     $previous = (Get-ItemProperty $uninstallKey -ErrorAction SilentlyContinue).DisplayVersion
     $oldWay = -not $Update -and ((Test-Path $dest) -or $previous) -and -not (Test-Path (Join-Path $dest 'setup-installed.txt'))
     if ($oldWay) {
         $prevTxt = if ($previous) { " ($(T 'version' 'versione') $previous)" } else { '' }
-        Say (T "Found legacy DualMix installation${prevTxt}: removing it (settings and virtual cables will be kept)." "Trovato un DualMix installato alla vecchia maniera${prevTxt}: lo rimuovo (impostazioni e cavi virtuali restano).")
+        Say (T "Found legacy DualMix installation${prevTxt}: uninstalling it (settings and virtual cables will be kept)." "Trovato un DualMix installato alla vecchia maniera${prevTxt}: lo disinstallo (impostazioni e cavi virtuali restano).")
         & (Join-Path $here 'rimuovi-vecchio.ps1') -Silent
+    } elseif ($previous -or (Test-Path $dest)) {
+        $prevTxt = if ($previous) { " ($(T 'version' 'versione') $previous)" } else { '' }
+        Say (T "Found previous DualMix installation${prevTxt}: replacing it cleanly (settings and virtual cables will be kept)." "Trovata una precedente installazione di DualMix${prevTxt}: la sostituisco in modo pulito (impostazioni e cavi virtuali restano).")
     }
     Stop-DualMix
 
-    # 4. swap the folders
+    # 4. swap the folders (removes old .NET DLLs/files completely)
     if (Test-Path $dest) { Move-Folder $dest $old; $hadOld = $true }
     Move-Folder $new $dest
     Set-Content -Path (Join-Path $dest 'setup-installed.txt') -Value "DualMix $version, installed by setup on $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -Encoding ASCII
@@ -200,7 +203,23 @@ try {
     $hadOld = $false
     Say (T "Installed to $dest" "Programma installato in $dest")
 
-    # 5. Start menu shortcut (windowless, supervised: the same way the sign-in task starts DualMix)
+    # 5. Start menu shortcut & legacy startup/task cleanup
+    foreach ($legacyFolder in 'Startup', 'DesktopDirectory') {
+        $legacyLnk = Join-Path ([Environment]::GetFolderPath($legacyFolder)) 'DualMix.lnk'
+        if (Test-Path $legacyLnk) { Remove-Item $legacyLnk -ErrorAction SilentlyContinue }
+    }
+    if ($isNative) {
+        $existingTask = Get-ScheduledTask -TaskName 'DualMix' -ErrorAction SilentlyContinue
+        if ($existingTask) {
+            $taskCmd = ($existingTask.Actions | Select-Object -First 1).Execute
+            $taskArgs = ($existingTask.Actions | Select-Object -First 1).Arguments
+            if (($taskCmd -like '*dotnet*' -or $taskArgs -like '*DualMix.dll*' -or $taskCmd -like '*conhost*')) {
+                $act = New-ScheduledTaskAction -Execute (Join-Path $dest 'DualMix.exe') -Argument '--supervise --tray' -WorkingDirectory $dest
+                Set-ScheduledTask -TaskName 'DualMix' -Action $act | Out-Null
+                Say (T 'Updated Windows autostart task to native DualMix.exe.' 'Attivita'' di avvio automatico aggiornata al nuovo DualMix.exe nativo.')
+            }
+        }
+    }
     $dll = Join-Path $dest 'DualMix.dll'
     $exe = Join-Path $dest 'DualMix.exe'
     $icon = Join-Path $dest 'dualmix.ico'

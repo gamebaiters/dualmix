@@ -20,11 +20,34 @@ const DUCKING_VAL: &str = "UserDuckingPreference";
 
 #[allow(dead_code)]
 pub fn autostart_is_enabled() -> bool {
-    // Check Scheduled Task first, then legacy Run key
+    // Check Scheduled Task first
     if run_schtasks(&["/Query", "/TN", TASK_NAME]).is_ok() {
         return true;
     }
     false
+}
+
+/// True when the scheduled task exists, is enabled, and points to the current executable with `--supervise --tray`.
+pub fn autostart_is_current() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let out = match Command::new("schtasks.exe")
+        .args(["/Query", "/TN", TASK_NAME, "/XML"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return false,
+    };
+    let xml = String::from_utf8_lossy(&out.stdout);
+    let exe_str = exe.to_string_lossy();
+    let exe_esc = escape_xml(&exe_str);
+    let has_exe = xml.to_ascii_lowercase().contains(&exe_str.to_ascii_lowercase())
+        || xml.to_ascii_lowercase().contains(&exe_esc.to_ascii_lowercase());
+    let has_args = xml.contains("--supervise --tray");
+    let disabled = xml.contains("<Enabled>false</Enabled>");
+    has_exe && has_args && !disabled
 }
 
 pub fn autostart_set(enabled: bool) {
@@ -34,7 +57,7 @@ pub fn autostart_set(enabled: bool) {
         let Some(user) = current_user_id() else { return };
         let xml = build_task_xml(&user, &exe);
         let tmp = std::env::temp_dir().join(format!("dualmix-task-{}.xml", std::process::id()));
-        if std::fs::write(&tmp, xml.as_bytes()).is_err() {
+        if std::fs::write(&tmp, encode_utf16_le_bom(&xml)).is_err() {
             return;
         }
         let xml_path = tmp.to_string_lossy().to_string();
@@ -67,13 +90,23 @@ fn escape_xml(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+fn encode_utf16_le_bom(s: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(2 + s.len() * 2);
+    bytes.push(0xFF);
+    bytes.push(0xFE);
+    for u in s.encode_utf16() {
+        bytes.extend_from_slice(&u.to_le_bytes());
+    }
+    bytes
+}
+
 fn build_task_xml(user: &str, exe: &Path) -> String {
     let exe_esc = escape_xml(&exe.to_string_lossy());
     let work_esc = escape_xml(&exe.parent().unwrap_or(Path::new(".")).to_string_lossy());
     let user_esc = escape_xml(user);
     // Use --supervise --tray so the audio engine starts minimized and self-restarts on unexpected crash.
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+        r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Principals>
     <Principal id="Author">
