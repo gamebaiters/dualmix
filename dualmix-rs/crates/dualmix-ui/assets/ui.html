@@ -438,6 +438,12 @@ function onRange(el) {
   const v = +el.value, min = +el.min, max = +el.max;
   el.style.setProperty('--pct', ((v - min) * 100 / (max - min)) + '%');
   const lbl = document.getElementById(el.id + '-lbl'); if (lbl) lbl.textContent = Math.round(v) + '%';
+  if (el.id === 'mix') {
+    const g = v <= 0 ? 100 : Math.round(100 - v);
+    const c = v >= 0 ? 100 : Math.round(100 + v);
+    const gl = document.getElementById('mix-game-lvl'); if (gl) gl.textContent = g + '%';
+    const cl = document.getElementById('mix-chat-lvl'); if (cl) cl.textContent = c + '%';
+  }
   const o = JSON.parse(el.dataset.cmd); o.value = v; send(o);
 }
 function card(inner, cls) { return `<div class="card ${cls||''}">${inner}</div>`; }
@@ -475,10 +481,10 @@ function pageMixer() {
     ${banner()}
     ${card(`<div class="mix-head"><div style="font-size:20px;font-weight:600">${esc(T('Mixer.ChatMix'))}</div><div class="cap" style="font-size:13px">${esc(m.mixText)}</div></div>
       <div class="mix-row">
-        <div class="mix-side"><div class="badge badge-game">${ic('game',18)}</div><div><div class="cap">Game</div><div class="big-level">${esc(m.gameLevel)}</div></div></div>
+        <div class="mix-side"><div class="badge badge-game">${ic('game',18)}</div><div><div class="cap">Game</div><div class="big-level" id="mix-game-lvl">${esc(m.gameLevel)}</div></div></div>
         <div class="balance-box" title="${esc(T('Mixer.MixTip'))}"><div class="balance-track"></div><div class="balance-center"></div>
           ${range('mix', m.mix, -100, 100, 'setMix', null, 'balance-range')}</div>
-        <div class="mix-side right"><div><div class="cap">Chat</div><div class="big-level">${esc(m.chatLevel)}</div></div><div class="badge badge-chat">${ic('chat',18)}</div></div>
+        <div class="mix-side right"><div><div class="cap">Chat</div><div class="big-level" id="mix-chat-lvl">${esc(m.chatLevel)}</div></div><div class="badge badge-chat">${ic('chat',18)}</div></div>
       </div>
       <div class="mix-buttons">
         <button class="btn" title="${esc(T('Mixer.AllGameTip'))}" onclick="send({cmd:'allGame'})">${esc(T('Mixer.AllGame'))}</button>
@@ -495,7 +501,7 @@ function pageMixer() {
         <div class="meter-track" style="max-width:360px"><div class="meter-fill meter-accent" id="meter-out"></div></div></div></div>
         <div class="row-right" style="width:300px">${muteBtn(m.outMuted, 'toggleOutMute', T('Mixer.MuteOutputTip'))}
           <div class="slider-wrap" title="${esc(T('Mixer.MasterVolumeTip'))}">${m.outAvail ? range('outVol', m.outVol, 0, 100, 'setOutVol') : range('outVol', 0, 0, 100, 'setOutVol').replace('<input', '<input disabled')}<span class="pct" id="outVol-lbl" style="width:44px;text-align:right">${m.outAvail?m.outVol+'%':'—'}</span></div></div></div>`)}
-    ${card(`<div class="card-row"><div class="card-left">${ic('knob',18)}<div class="card-desc" style="font-size:13px;margin:0">${esc(T('Mixer.KnobPrefix'))} <b style="color:var(--text)">${esc(m.knobTargetText)}</b>${esc(T('Mixer.KnobHintMid'))} <b style="color:var(--text)">${esc(m.hotkeyText)}</b></div></div>
+    ${card(`<div class="card-row"><div class="card-left">${ic('knob',18)}<div class="card-desc" style="font-size:13px;margin:0">${esc(T('Mixer.KnobPrefix'))} <b style="color:var(--text)">${esc(m.knobTargetText)}</b>${esc(T('Mixer.KnobHintMid'))} <b style="color:var(--text);white-space:nowrap">${esc(m.hotkeyText)}</b></div></div>
         <button class="btn btn-subtle" onclick="nav('knob')">${esc(T('Mixer.KnobSettings'))}</button></div>`)}
   </div>`;
 }
@@ -727,11 +733,37 @@ function onLive(l) {
 
 // ------------------------------------------------------------------------------------------ interaction guard
 // While the user drags a slider (or a drop-down list is open) incoming state must not rebuild the page.
-document.addEventListener('pointerdown', e => { if (e.target.closest('input[type=range], select')) interacting = true; }, true);
-function endInteraction() { if (!interacting) return; interacting = false; if (pending) setTimeout(() => { if (!interacting) render(true); }, 0); }
-document.addEventListener('pointerup', e => { if (!(e.target.closest && e.target.closest('select'))) endInteraction(); }, true);
+let interactKind = '', interactTimer = 0;
+function startInteraction(kind, el) {
+  interacting = true; interactKind = kind;
+  clearTimeout(interactTimer);
+  interactTimer = setTimeout(() => { if (interacting && interactKind === 'select') endInteraction(); }, 8000);
+  if (kind === 'range' && el && el.setPointerCapture && window._lastPtrId != null) {
+    try { el.setPointerCapture(window._lastPtrId); } catch {}
+  }
+}
+function endInteraction() {
+  clearTimeout(interactTimer); interactTimer = 0; interactKind = '';
+  if (!interacting) return;
+  interacting = false;
+  if (pending) setTimeout(() => { if (!interacting) render(true); }, 0);
+}
+document.addEventListener('pointerdown', e => {
+  window._lastPtrId = e.pointerId;
+  const r = e.target.closest('input[type=range]');
+  if (r) { startInteraction('range', r); return; }
+  const s = e.target.closest('select');
+  if (s) startInteraction('select', s);
+}, true);
+document.addEventListener('pointermove', e => {
+  if (interacting && interactKind === 'range' && e.buttons === 0) endInteraction();
+}, true);
+document.addEventListener('pointerup', e => { if (interactKind !== 'select') endInteraction(); }, true);
+document.addEventListener('pointercancel', () => endInteraction(), true);
+document.addEventListener('lostpointercapture', () => { if (interactKind === 'range') endInteraction(); }, true);
 document.addEventListener('change', e => { if (e.target.tagName === 'SELECT') endInteraction(); }, true);
 document.addEventListener('focusout', e => { if (e.target.tagName === 'SELECT') endInteraction(); }, true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && interacting) endInteraction(); }, true);
 window.addEventListener('blur', () => endInteraction());
 document.addEventListener('dblclick', e => { if (e.target.id === 'mix') send({cmd: 'resetMix'}); });
 document.addEventListener('keydown', e => {

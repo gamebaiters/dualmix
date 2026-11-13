@@ -180,6 +180,7 @@ impl Updater {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_feed(&mut self, settings_feed: Option<&str>) {
         if std::env::var("DUALMIX_UPDATE_FEED").is_err() {
             self.feed = settings_feed.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_UPDATE_FEED).to_string();

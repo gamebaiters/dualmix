@@ -122,6 +122,7 @@ impl Severity {
 #[derive(Debug, Clone)]
 pub enum HostAction {
     Osd(OsdInfo, bool),
+    #[allow(dead_code)]
     Balloon(String, String),
     ShowMain,
     OpenWizard,
@@ -216,6 +217,7 @@ pub struct Controller {
     /// Bumped every time the devices were looked at again (the UI caches the device list by it).
     pub devices_gen: u64,
     pub autostart_enabled: bool,
+    #[allow(dead_code)]
     started: Instant,
 }
 
@@ -760,6 +762,7 @@ impl Controller {
         self.sessions.snapshot()
     }
 
+    #[allow(dead_code)]
     pub fn meters_enabled(&self) -> bool {
         self.meters_enabled
     }
@@ -778,6 +781,7 @@ impl Controller {
         self.virtual_active
     }
 
+    #[allow(dead_code)]
     pub fn has_game_bus(&self) -> bool {
         self.virtual_active && self.dual
     }
@@ -945,6 +949,7 @@ impl Controller {
     }
 
     /// Recomputes and pushes gains after a setting that affects them changed.
+    #[allow(dead_code)]
     pub fn refresh_gains(&mut self) {
         self.mix_state_changed();
     }
@@ -1817,6 +1822,7 @@ impl Controller {
         SettingsStore::save(&self.settings);
     }
 
+    #[allow(dead_code)]
     pub fn uptime_s(&self) -> u64 {
         self.started.elapsed().as_secs()
     }

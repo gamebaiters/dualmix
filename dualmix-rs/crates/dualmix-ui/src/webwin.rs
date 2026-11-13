@@ -74,6 +74,7 @@ struct Inner {
     min_w: i32,
     min_h: i32,
     dark: Cell<bool>,
+    visible: Cell<bool>,
 }
 
 #[derive(Clone)]
@@ -170,6 +171,7 @@ impl WebWindow {
             min_w,
             min_h,
             dark: Cell::new(dark),
+            visible: Cell::new(false),
         });
         let raw = Rc::into_raw(Rc::clone(&inner));
         let hwnd = unsafe {
@@ -493,24 +495,28 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
         match msg {
             WM_SIZE => {
                 inner.resize();
-                let minimized = wparam.0 == 1; // SIZE_MINIMIZED
-                if let Ok(c) = inner.controller.try_borrow() {
-                    if let Some(c) = c.as_ref() {
-                        let _ = c.SetIsVisible(!minimized && IsWindowVisible(hwnd).as_bool());
+                let vis = wparam.0 != 1 && IsWindowVisible(hwnd).as_bool();
+                if vis != inner.visible.replace(vis) {
+                    if let Ok(c) = inner.controller.try_borrow() {
+                        if let Some(c) = c.as_ref() {
+                            let _ = c.SetIsVisible(vis);
+                        }
                     }
+                    (inner.sink)(WebEvent::Visibility(inner.kind, vis));
                 }
-                (inner.sink)(WebEvent::Visibility(inner.kind, !minimized && IsWindowVisible(hwnd).as_bool()));
                 LRESULT(0)
             }
             0x0018 => {
                 // WM_SHOWWINDOW
-                let shown = wparam.0 != 0;
-                if let Ok(c) = inner.controller.try_borrow() {
-                    if let Some(c) = c.as_ref() {
-                        let _ = c.SetIsVisible(shown);
+                let vis = wparam.0 != 0;
+                if vis != inner.visible.replace(vis) {
+                    if let Ok(c) = inner.controller.try_borrow() {
+                        if let Some(c) = c.as_ref() {
+                            let _ = c.SetIsVisible(vis);
+                        }
                     }
+                    (inner.sink)(WebEvent::Visibility(inner.kind, vis));
                 }
-                (inner.sink)(WebEvent::Visibility(inner.kind, shown));
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             WM_MOVE => {

@@ -23,6 +23,7 @@ use dualmix_input::KnobController;
 pub struct DiagReport {
     pub ok: bool,
     pub text: String,
+    #[allow(dead_code)]
     pub path: std::path::PathBuf,
 }
 
