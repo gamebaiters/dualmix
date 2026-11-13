@@ -12,12 +12,14 @@ base_url=""
 notes=""
 exe_path=""
 force_dotnet=0
+require_installer=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --base-url) base_url="${2%/}"; shift 2 ;;
     --notes) notes="$2"; shift 2 ;;
     --exe) exe_path="$2"; shift 2 ;;
     --dotnet) force_dotnet=1; shift ;;
+    --require-installer) require_installer=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -106,9 +108,11 @@ cp "$stage/setup/rimuovi-vecchio.ps1" "$old/setup/"
 cp "$stage/Remove old DualMix.cmd" "$old/"
 make_zip "$old" "$out/Remove-old-DualMix.zip"
 
-if ! command -v makensis >/dev/null && [ -x "/c/Program Files (x86)/NSIS/makensis.exe" ]; then
-  PATH="$PATH:/c/Program Files (x86)/NSIS"
-fi
+for nsis_dir in "/c/Program Files (x86)/NSIS" "/c/Program Files/NSIS"; do
+  if ! command -v makensis >/dev/null && [ -x "$nsis_dir/makensis.exe" ]; then
+    PATH="$PATH:$nsis_dir"
+  fi
+done
 if command -v makensis >/dev/null; then
   echo "== installer"
   nsis_stage="$stage"
@@ -121,6 +125,10 @@ if command -v makensis >/dev/null; then
   fi
   makensis -V2 -DVERSION="$version" -DSTAGE="$nsis_stage" -DOUTFILE="$nsis_out" "$nsis_script"
 else
+  if [ "$require_installer" -eq 1 ]; then
+    echo "== installer failed: makensis not found" >&2
+    exit 1
+  fi
   echo "== installer skipped: makensis not found" >&2
 fi
 

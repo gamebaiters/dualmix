@@ -41,6 +41,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\NSIS\makensis.exe') -and -not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            choco install nsis -y --no-progress
+          }
+
       - name: Resolve version
         shell: bash
         run: |
@@ -70,7 +77,8 @@ jobs:
             tools/build-release.sh \
               --exe dualmix-rs/target/release/DualMix.exe \
               --base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" \
-              --notes "$notes"
+              --notes "$notes" \
+              --require-installer
           else
             notes="${{ github.event.inputs.notes }}"
             tools/build-release.sh \
