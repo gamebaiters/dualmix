@@ -1,9 +1,7 @@
-# Publishes a DualMix release when a tag "v<version>" is pushed (the tag must match <Version> in DualMix.csproj):
-#   1. builds the package, the installer, the cleanup zip and version.json (tools/build-release.sh);
+# Publishes a DualMix release when a tag "v<version>" is pushed (matching version in dualmix-rs/Cargo.toml):
+#   1. builds the native Rust binary, zip package, NSIS installer, cleanup zip, and version.json;
 #   2. creates the GitHub release with those files (including LEGGIMI.txt);
-#   3. commits version.json to the default branch: that is the file every running DualMix reads
-#      (https://raw.githubusercontent.com/<owner>/<repo>/main/version.json) to find out there is a new version.
-# Manual trigger (workflow_dispatch) builds a downloadable snapshot artifact without publishing a release.
+#   3. commits version.json to the default branch.
 name: release
 
 on:
@@ -25,25 +23,31 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-dotnet@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          dotnet-version: '10.0.x'
+          targets: x86_64-pc-windows-msvc
 
-      - name: Install NSIS and zip
-        run: sudo apt-get update -q && sudo apt-get install -y -q nsis zip
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dualmix-rs
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Resolve version
+        shell: bash
         run: |
-          version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' DualMix/DualMix.csproj | head -1)"
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' dualmix-rs/Cargo.toml | head -1)"
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-              echo "Tag $GITHUB_REF_NAME does not match the project version $version" >&2
+              echo "Tag $GITHUB_REF_NAME does not match dualmix-rs/Cargo.toml version $version" >&2
               exit 1
             fi
             echo "IS_RELEASE=true" >> "$GITHUB_ENV"
@@ -52,16 +56,26 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
-      - name: Build the release
+      - name: Test & build native release binary
+        shell: pwsh
+        run: |
+          cargo test --manifest-path dualmix-rs/Cargo.toml --workspace
+          cargo build --manifest-path dualmix-rs/Cargo.toml --release
+
+      - name: Package release
+        shell: bash
         run: |
           if [ "$IS_RELEASE" = "true" ]; then
             notes="$(git tag -l --format='%(contents:subject)' "$GITHUB_REF_NAME")"
             tools/build-release.sh \
+              --exe dualmix-rs/target/release/DualMix.exe \
               --base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" \
               --notes "$notes"
           else
             notes="${{ github.event.inputs.notes }}"
-            tools/build-release.sh --notes "${notes:-Snapshot (${GITHUB_SHA::7})}"
+            tools/build-release.sh \
+              --exe dualmix-rs/target/release/DualMix.exe \
+              --notes "${notes:-Snapshot (${GITHUB_SHA::7})}"
           fi
           (cd out/release && sha256sum -c SHA256SUMS.txt)
 
@@ -77,6 +91,7 @@ jobs:
 
       - name: Create the GitHub release
         if: env.IS_RELEASE == 'true'
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -91,6 +106,7 @@ jobs:
 
       - name: Announce the version to the installed copies (version.json on the default branch)
         if: env.IS_RELEASE == 'true'
+        shell: bash
         run: |
           branch="${{ github.event.repository.default_branch }}"
           git fetch origin "$branch"
@@ -98,6 +114,8 @@ jobs:
           cp out/release/version.json version.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add version.json
-          git commit -m "version.json: DualMix $VERSION" || exit 0
-          git push origin "$branch"
+          if ! git diff --quiet version.json; then
+            git add version.json
+            git commit -m "chore: publish version.json $VERSION"
+            git push origin "$branch"
+          fi

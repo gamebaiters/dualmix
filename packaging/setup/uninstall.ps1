@@ -22,14 +22,15 @@ $ErrorActionPreference = 'Continue'
 $isIt = [System.Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName -eq 'it'
 function T([string]$en, [string]$it) { if ($isIt) { $it } else { $en } }
 $dest = Join-Path $env:LOCALAPPDATA 'Programs\DualMix'
+$exe = Join-Path $dest 'DualMix.exe'
 $dll = Join-Path $dest 'DualMix.dll'
 Set-Location $env:TEMP   # never keep the folder being deleted as the current directory
 
 function Find-DesktopHost {
     foreach ($dir in @((Join-Path $env:ProgramFiles 'dotnet'), (Join-Path $env:USERPROFILE '.dotnet'))) {
-        $exe = Join-Path $dir 'dotnet.exe'
+        $de = Join-Path $dir 'dotnet.exe'
         $desktop = Join-Path $dir 'shared\Microsoft.WindowsDesktop.App'
-        if ((Test-Path $exe) -and (Test-Path $desktop) -and (Get-ChildItem $desktop -Directory -Filter '10.*')) { return $exe }
+        if ((Test-Path $de) -and (Test-Path $desktop) -and (Get-ChildItem $desktop -Directory -Filter '10.*')) { return $de }
     }
     return $null
 }
@@ -38,25 +39,40 @@ function Get-DualMixProcesses {
         $_.Name -eq 'DualMix.exe' -or (($_.Name -eq 'dotnet.exe' -or $_.Name -eq 'conhost.exe') -and $_.CommandLine -like '*DualMix.dll*')
     }
 }
-$hostExe = Find-DesktopHost
+$isNative = (Test-Path $exe) -and -not (Test-Path $dll)
+$hostExe = if ($isNative) { $null } else { Find-DesktopHost }
 
 # 1. close DualMix (clean exit: volumes, per-app outputs and default devices are restored by DualMix itself)
 if (Get-DualMixProcesses) {
     Write-Host (T 'Closing DualMix...' 'Chiudo DualMix...')
-    if ($hostExe -and (Test-Path $dll)) { Start-Process $hostExe -ArgumentList "`"$dll`" --exit" -Wait -WindowStyle Hidden }
+    if ($isNative) { Start-Process $exe -ArgumentList '--exit' -Wait -WindowStyle Hidden }
+    elseif ($hostExe -and (Test-Path $dll)) { Start-Process $hostExe -ArgumentList "`"$dll`" --exit" -Wait -WindowStyle Hidden }
     $deadline = (Get-Date).AddSeconds(15)
     while ((Get-DualMixProcesses) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
     Get-DualMixProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
-# 2. virtual cables: factory names back, or drivers removed (elevated helper inside DualMix)
-if ($hostExe -and (Test-Path $dll)) {
+# 2. virtual cables: factory names back, or drivers removed (elevated helper inside DualMix, only when VB-Audio is present)
+$needCableStep = $false
+if (Get-Command Get-PnpDevice -ErrorAction SilentlyContinue) {
+    $media = Get-PnpDevice -Class MEDIA -ErrorAction SilentlyContinue
+    $needCableStep = [bool]($media | Where-Object { $_.FriendlyName -like '*VB-Audio*' -or $_.InstanceId -like '*VBAudio*' })
+} else {
+    $sound = Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue
+    $needCableStep = [bool]($sound | Where-Object { $_.Name -like '*VB-Audio*' -or $_.PNPDeviceID -like '*VBAudio*' })
+}
+
+if ($needCableStep -and ($isNative -or ($hostExe -and (Test-Path $dll)))) {
     $result = Join-Path $env:TEMP 'dualmix-uninstall.json'
     Remove-Item $result -ErrorAction SilentlyContinue
     $what = if ($RemoveDrivers) { '--remove-drivers' } else { '--unconfigure' }
     Write-Host (T 'Restoring virtual cables (Windows will prompt for administrator permission)...' 'Ripristino i cavi virtuali (Windows chiede l''autorizzazione di amministratore)...')
     try {
-        Start-Process $hostExe -ArgumentList "`"$dll`" --setup `"$result`" $what" -Verb RunAs -Wait -WindowStyle Hidden
+        if ($isNative) {
+            Start-Process $exe -ArgumentList "--setup `"$result`" $what" -Verb RunAs -Wait -WindowStyle Hidden
+        } else {
+            Start-Process $hostExe -ArgumentList "`"$dll`" --setup `"$result`" $what" -Verb RunAs -Wait -WindowStyle Hidden
+        }
         if (Test-Path $result) { Write-Host ((Get-Content $result -Raw | ConvertFrom-Json).Message); Remove-Item $result -Force }
     } catch {
         Write-Host (T 'Administrator permission declined: virtual cables remain installed as "DualMix Game" / "DualMix Chat".' 'Autorizzazione negata: i cavi virtuali restano installati con i nomi "DualMix Game" / "DualMix Chat".')
