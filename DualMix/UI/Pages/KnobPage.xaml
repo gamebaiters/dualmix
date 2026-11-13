@@ -1,0 +1,218 @@
+<Page x:Class="DualMix.UI.Pages.KnobPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      Title="Rotella e tasti"
+      Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+    <!-- Scrolling is provided by the navigation frame (WPF-UI DynamicScrollViewer). -->
+    <StackPanel Margin="{StaticResource PagePadding}" MaxWidth="1000">
+        <ui:TextBlock Text="Rotella e tasti" FontTypography="Title" />
+        <TextBlock Style="{StaticResource CaptionText}" FontSize="14" Margin="0,4,0,20"
+                   Text="La rotella del NuPhy Kick75 invia i tasti Volume +, Volume − e Muto. Qui scegli cosa controllano e come cambiare funzione al volo." />
+
+        <!-- Current function (hero) -->
+        <Border Style="{StaticResource Surface}" Padding="24,20">
+            <StackPanel>
+                <TextBlock Text="Cosa controlla la rotella" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                <Border Style="{StaticResource SegmentHost}" Margin="0,12,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="TMix" Style="{StaticResource SegmentItem}" Content="Mix Game/Chat" MinWidth="120" Checked="Target_Checked" Tag="Mix" />
+                        <RadioButton x:Name="TVolume" Style="{StaticResource SegmentItem}" Content="Volume generale" MinWidth="120" Checked="Target_Checked" Tag="Volume" />
+                        <RadioButton x:Name="TGame" Style="{StaticResource SegmentItem}" Content="Volume Game" MinWidth="110" Checked="Target_Checked" Tag="Game" />
+                        <RadioButton x:Name="TChat" Style="{StaticResource SegmentItem}" Content="Volume Chat" MinWidth="110" Checked="Target_Checked" Tag="Chat" />
+                    </StackPanel>
+                </Border>
+                <Grid Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Gira a sinistra" Style="{StaticResource CaptionText}" Margin="0,0,16,4" />
+                    <TextBlock x:Name="LeftText" Grid.Column="1" Style="{StaticResource BodyText}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="1" Text="Gira a destra" Style="{StaticResource CaptionText}" Margin="0,0,16,4" />
+                    <TextBlock x:Name="RightText" Grid.Row="1" Grid.Column="1" Style="{StaticResource BodyText}" Margin="0,0,0,4" />
+                    <TextBlock Grid.Row="2" Text="Premi" Style="{StaticResource CaptionText}" Margin="0,0,16,0" />
+                    <TextBlock x:Name="PressText" Grid.Row="2" Grid.Column="1" Style="{StaticResource BodyText}" />
+                </Grid>
+                <TextBlock x:Name="FunctionNote" Style="{StaticResource CaptionText}" Margin="0,12,0,0" />
+            </StackPanel>
+        </Border>
+
+        <TextBlock Text="Cambiare funzione al volo" Style="{StaticResource SectionHeader}" />
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="ArrowSync24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="Premi due volte la rotella" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Due pressioni rapide passano alla funzione successiva. Un indicatore a schermo mostra quella scelta." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="DoublePress" Checked="Option_Changed" Unchecked="Option_Changed"
+                             AutomationProperties.Name="Premi due volte la rotella per cambiare funzione" />
+        </ui:CardControl>
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="KeyboardShift24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="Ctrl + premi la rotella" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Tieni premuto Ctrl e premi la rotella: passa alla funzione successiva." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="CtrlPress" Checked="Option_Changed" Unchecked="Option_Changed"
+                             AutomationProperties.Name="Ctrl più pressione della rotella per cambiare funzione" />
+        </ui:CardControl>
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Keyboard24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="Scorciatoia da tastiera" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Clicca il pulsante e premi la combinazione che preferisci. Va bene anche un tasto solo (F1–F24, Pausa, Ins…)." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <ui:Button x:Name="HotkeyButton" MinWidth="170" Click="Hotkey_Click" ToolTip="Clicca e premi la nuova combinazione (Esc annulla)" />
+                <ui:Button Appearance="Transparent" Margin="4,0,0,0" Click="HotkeyReset_Click" ToolTip="Ripristina la scorciatoia predefinita" Width="36" Height="36" Padding="0"
+                           AutomationProperties.Name="Ripristina la scorciatoia predefinita">
+                    <ui:SymbolIcon Symbol="ArrowReset24" FontSize="16" />
+                </ui:Button>
+            </StackPanel>
+        </ui:CardControl>
+
+        <ui:CardExpander Margin="0,0,0,4" IsExpanded="False">
+            <ui:CardExpander.Icon>
+                <ui:SymbolIcon Symbol="Options24" />
+            </ui:CardExpander.Icon>
+            <ui:CardExpander.Header>
+                <StackPanel>
+                    <TextBlock Text="Funzioni nel ciclo" Style="{StaticResource BodyText}" />
+                    <TextBlock x:Name="CycleSummary" Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardExpander.Header>
+            <WrapPanel Margin="44,0,0,0">
+                <CheckBox x:Name="CMix" Content="Mix Game/Chat" Margin="0,0,24,0" Checked="Cycle_Changed" Unchecked="Cycle_Changed" />
+                <CheckBox x:Name="CVolume" Content="Volume generale" Margin="0,0,24,0" Checked="Cycle_Changed" Unchecked="Cycle_Changed" />
+                <CheckBox x:Name="CGame" Content="Volume Game" Margin="0,0,24,0" Checked="Cycle_Changed" Unchecked="Cycle_Changed" />
+                <CheckBox x:Name="CChat" Content="Volume Chat" Checked="Cycle_Changed" Unchecked="Cycle_Changed" />
+            </WrapPanel>
+        </ui:CardExpander>
+
+        <TextBlock Text="Comportamento" Style="{StaticResource SectionHeader}" />
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Power24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="DualMix usa la rotella" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Se disattivato, rotella e scorciatoie tornano interamente a Windows." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="Enabled" Checked="Option_Changed" Unchecked="Option_Changed"
+                             AutomationProperties.Name="DualMix usa la rotella" />
+        </ui:CardControl>
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="ArrowSwap24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="Ctrl + gira: l'altra funzione, al momento" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Tenendo premuto Ctrl la rotella regola il volume generale quando è sul mix, e il mix in tutti gli altri casi." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="CtrlAlt" Checked="Option_Changed" Unchecked="Option_Changed"
+                             AutomationProperties.Name="Ctrl più rotazione usa l'altra funzione" />
+        </ui:CardControl>
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Gauge24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="Passo per scatto" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Quanto cambia ogni scatto della rotella. Passando dal centro il mix si ferma una volta su «Bilanciato»." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <StackPanel Orientation="Horizontal">
+                <Slider x:Name="Step" Width="180" Minimum="1" Maximum="10" SmallChange="1" LargeChange="1" IsSnapToTickEnabled="True" TickFrequency="1"
+                        ValueChanged="Step_Changed" AutomationProperties.Name="Passo per scatto" />
+                <TextBlock x:Name="StepText" Width="44" TextAlignment="Right" VerticalAlignment="Center" Style="{StaticResource BodyText}" />
+            </StackPanel>
+        </ui:CardControl>
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="ArrowUndo24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="Inverti direzione" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Normalmente: sinistra = più Game / meno volume, destra = più Chat / più volume." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="Invert" Checked="Option_Changed" Unchecked="Option_Changed"
+                             AutomationProperties.Name="Inverti direzione" />
+        </ui:CardControl>
+
+        <ui:CardExpander Margin="0,0,0,4">
+            <ui:CardExpander.Icon>
+                <ui:SymbolIcon Symbol="Keyboard12324" />
+            </ui:CardExpander.Icon>
+            <ui:CardExpander.Header>
+                <StackPanel>
+                    <TextBlock Text="Tasti dedicati (avanzato, con VIA)" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Assegna con VIA tasti come F13, F14, F15: funzionano sempre, qualunque sia la funzione della rotella." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardExpander.Header>
+            <Grid Margin="44,0,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="200" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Sposta verso Game" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                <ui:Button x:Name="KeyGame" Grid.Column="1" MinWidth="150" Margin="0,0,0,8" Click="KeyAssign_Click" Tag="Game" />
+                <TextBlock Grid.Row="1" Text="Sposta verso Chat" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                <ui:Button x:Name="KeyChat" Grid.Row="1" Grid.Column="1" MinWidth="150" Margin="0,0,0,8" Click="KeyAssign_Click" Tag="Chat" />
+                <TextBlock Grid.Row="2" Text="Mix bilanciato" Style="{StaticResource BodyText}" VerticalAlignment="Center" />
+                <ui:Button x:Name="KeyReset" Grid.Row="2" Grid.Column="1" MinWidth="150" Click="KeyAssign_Click" Tag="Reset" />
+            </Grid>
+        </ui:CardExpander>
+
+        <TextBlock Text="Prova" Style="{StaticResource SectionHeader}" />
+        <Border Style="{StaticResource Surface}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <ui:SymbolIcon Symbol="Pulse24" FontSize="20" VerticalAlignment="Top" Margin="0,2,0,0" />
+                <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <TextBlock x:Name="TestText" Text="Gira o premi la rotella: qui compare quello che arriva dalla tastiera e chi lo gestisce." Style="{StaticResource BodyText}" />
+                    <TextBlock x:Name="KeyboardStatusText" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </StackPanel>
+</Page>

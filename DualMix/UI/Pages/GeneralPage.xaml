@@ -1,0 +1,129 @@
+<Page x:Class="DualMix.UI.Pages.GeneralPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+      Title="Generale"
+      Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+    <!-- Scrolling is provided by the navigation frame (WPF-UI DynamicScrollViewer). -->
+        <StackPanel Margin="{StaticResource PagePadding}" MaxWidth="1000">
+            <ui:TextBlock Text="Generale" FontTypography="Title" Margin="0,0,0,20" />
+
+            <TextBlock Text="Avvio" Style="{StaticResource SectionHeader}" Margin="0,0,0,8" />
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="Rocket24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="Avvia con Windows" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="DualMix parte all'accesso (attività «DualMix» di Windows), senza finestre, e viene riavviato da solo se si blocca." Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch x:Name="Autostart" Checked="Option_Changed" Unchecked="Option_Changed" />
+            </ui:CardControl>
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="WindowArrowUp24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="All'avvio con Windows resta nascosto" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="La finestra si apre solo cliccando l'icona nell'area di notifica." Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch x:Name="StartHidden" Checked="Option_Changed" Unchecked="Option_Changed" />
+            </ui:CardControl>
+
+            <TextBlock Text="Comportamento" Style="{StaticResource SectionHeader}" />
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="SlideText24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="Indicatore a schermo" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="Mostra mix e volume quando usi la rotella. Non ruba il focus e non intercetta i clic." Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <StackPanel Orientation="Horizontal">
+                    <ui:Button Content="Prova" Appearance="Transparent" Click="TestOsd_Click" Margin="0,0,8,0" />
+                    <ui:ToggleSwitch x:Name="Osd" Checked="Option_Changed" Unchecked="Option_Changed" />
+                </StackPanel>
+            </ui:CardControl>
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="ArrowUndo24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="Ripristina i volumi delle app all'uscita" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="Chiudendo DualMix ogni app torna al volume che aveva, senza il mix applicato." Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:ToggleSwitch x:Name="RestoreVolumes" Checked="Option_Changed" Unchecked="Option_Changed" />
+            </ui:CardControl>
+
+            <TextBlock Text="Aspetto" Style="{StaticResource SectionHeader}" />
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="DarkTheme24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="Tema" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="Segue Windows oppure resta chiaro o scuro." Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <Border Style="{StaticResource SegmentHost}">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="ThSystem" Style="{StaticResource SegmentItem}" Content="Sistema" Tag="System" Checked="Theme_Checked" />
+                        <RadioButton x:Name="ThLight" Style="{StaticResource SegmentItem}" Content="Chiaro" Tag="Light" Checked="Theme_Checked" />
+                        <RadioButton x:Name="ThDark" Style="{StaticResource SegmentItem}" Content="Scuro" Tag="Dark" Checked="Theme_Checked" />
+                    </StackPanel>
+                </Border>
+            </ui:CardControl>
+
+            <TextBlock Text="Assistenza" Style="{StaticResource SectionHeader}" />
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="Stethoscope24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="Diagnostica" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="DiagText" Text="Controlla dispositivi, driver e rotella, poi misura il percorso audio con toni di prova quasi inudibili (circa un minuto)." Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:Button x:Name="DiagButton" Content="Esegui" Click="Diag_Click" />
+            </ui:CardControl>
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="Folder24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="Impostazioni e log" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="DataPath" Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:Button Content="Apri cartella" Click="OpenFolder_Click" />
+            </ui:CardControl>
+
+            <TextBlock Text="Informazioni" Style="{StaticResource SectionHeader}" />
+            <Border Style="{StaticResource Surface}">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="pack://application:,,,/Assets/dualmix.ico" Width="32" Height="32" />
+                        <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="VersionText" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            <TextBlock Text="Mixer Game/Chat per Windows, ispirato al ChatMix di SteelSeries." Style="{StaticResource CaptionText}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource CaptionText}" Margin="0,12,0,0">
+                        Le uscite virtuali usano VB-CABLE di VB-Audio Software (donationware): se ti è utile, puoi sostenere l'autore su
+                        <Hyperlink NavigateUri="https://vb-audio.com/Cable/" RequestNavigate="Link_Navigate">vb-audio.com</Hyperlink>.
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+</Page>

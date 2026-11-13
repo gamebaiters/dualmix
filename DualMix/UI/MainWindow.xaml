@@ -1,0 +1,61 @@
+<ui:FluentWindow x:Class="DualMix.UI.MainWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:pages="clr-namespace:DualMix.UI.Pages"
+                 Title="DualMix"
+                 Width="1040" Height="740" MinWidth="820" MinHeight="560"
+                 WindowStartupLocation="CenterScreen"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica"
+                 WindowCornerPreference="Round"
+                 Icon="pack://application:,,,/Assets/dualmix.ico">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar x:Name="TitleBar" Grid.Row="0" Title="DualMix">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="pack://application:,,,/Assets/dualmix.ico" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+
+        <ui:NavigationView x:Name="Nav" Grid.Row="1"
+                           PaneDisplayMode="Left"
+                           IsBackButtonVisible="Collapsed"
+                           IsPaneToggleVisible="True"
+                           OpenPaneLength="232">
+            <ui:NavigationView.MenuItems>
+                <ui:NavigationViewItem Content="Mixer" TargetPageType="{x:Type pages:MixerPage}" ToolTip="Mixer Game/Chat (Ctrl+1)">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Options24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="App" TargetPageType="{x:Type pages:AppsPage}" ToolTip="Assegna le app a Game o Chat (Ctrl+2)">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Apps24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="Rotella e tasti" TargetPageType="{x:Type pages:KnobPage}" ToolTip="Rotella del Kick75 e scorciatoie (Ctrl+3)">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Keyboard24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="Audio e dispositivi" TargetPageType="{x:Type pages:AudioPage}" ToolTip="Uscita, driver, qualità (Ctrl+4)">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Speaker224" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+            </ui:NavigationView.MenuItems>
+            <ui:NavigationView.FooterMenuItems>
+                <ui:NavigationViewItem Content="Generale" TargetPageType="{x:Type pages:GeneralPage}" ToolTip="Avvio, aspetto, informazioni (Ctrl+5)">
+                    <ui:NavigationViewItem.Icon>
+                        <ui:SymbolIcon Symbol="Settings24" />
+                    </ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+            </ui:NavigationView.FooterMenuItems>
+        </ui:NavigationView>
+    </Grid>
+</ui:FluentWindow>
