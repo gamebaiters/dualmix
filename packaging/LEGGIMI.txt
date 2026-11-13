@@ -1,0 +1,35 @@
+DualMix - mixer Game/Chat per Windows
+=====================================
+
+INSTALLARE O AGGIORNARE
+  Doppio clic su  DualMix-Setup-<versione>.exe
+  Non servono diritti di amministratore. Se c'e' gia' un DualMix (anche quello vecchio, installato
+  dal sorgente con install.ps1) il setup lo chiude, lo toglie e mette il nuovo.
+  Impostazioni e cavi virtuali («DualMix Game» / «DualMix Chat») restano come sono.
+
+  Se Windows o l'antivirus bloccano il file .exe (non e' firmato):
+    scarica  DualMix-<versione>-win-x64.zip,  estrailo,  doppio clic su  «Installa DualMix.cmd».
+  Fa esattamente le stesse cose.
+
+SOLO TOGLIERE IL VECCHIO DUALMIX (senza installare niente)
+  Rimuovi-vecchio-DualMix.zip  ->  estrailo  ->  «Rimuovi vecchio DualMix.cmd»
+  Toglie programma, avvio automatico, collegamenti e voce in «App installate».
+  Lascia impostazioni, log e cavi virtuali (per togliere anche le impostazioni: aggiungi  -Purge).
+
+DISINSTALLARE
+  Impostazioni di Windows > App > App installate > DualMix > Disinstalla
+  oppure «Disinstalla DualMix.cmd» dentro lo zip  (-RemoveDrivers toglie anche i cavi, -Purge anche le impostazioni).
+
+AGGIORNAMENTI
+  DualMix cerca da solo le nuove versioni (Generale > Aggiornamenti): all'avvio e una volta al giorno.
+  Le legge da  version.json  (versione, indirizzo del pacchetto, impronta SHA-256).
+  In questa cartella trovi sempre l'ultima versione e le precedenti.
+
+FILE
+  DualMix-Setup-<v>.exe        installazione con doppio clic
+  DualMix-<v>-win-x64.zip      lo stesso pacchetto, senza .exe (e' quello che scarica l'aggiornamento automatico)
+  Rimuovi-vecchio-DualMix.zip  script per togliere il vecchio DualMix
+  version.json                 ultima versione disponibile
+  SHA256SUMS.txt               impronte dei file
+
+Cosa fa il setup, passo per passo: %APPDATA%\DualMix\setup.log

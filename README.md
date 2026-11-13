@@ -1,158 +1,89 @@
 # DualMix
 
-A Game/Chat mixer for Windows, modelled on SteelSeries **ChatMix** (GameDAC / Sonar).
-One control balances the game or film against the voice chat (Discord, TeamSpeak…):
+Mixer audio per Windows 11 nello stile del ChatMix di SteelSeries: due uscite virtuali, **DualMix Game** e
+**DualMix Chat**, mixate sull'uscita reale (Sound Blaster AE-5 Plus). La rotella della tastiera (Volume +, Volume −,
+Muto) regola una di quattro funzioni: Volume generale, Mix Game/Chat, Volume Game, Volume Chat.
 
-- **Center**: Game 100%, Chat 100%
-- **Towards Game** (left): Game stays at 100%, Chat goes down
-- **Towards Chat** (right): Chat stays at 100%, Game goes down
+Versione 2.2.0 · .NET 10 WPF (`net10.0-windows`, win-x64) · WPF-UI 4.3.0 · NAudio.Wasapi 2.2.1 · interfaccia in italiano.
 
-It starts with Windows and lives in the notification area. You can drive it from the window,
-from the tray icon, or from the **NuPhy Kick75 knob**.
+## Installare
 
----
+Dalla cartella dei rilasci (Nextcloud `_claude/condivisi/DualMix/`, in futuro le release GitHub):
 
-## Installation
+- **`DualMix-Setup-<v>.exe`**: doppio clic. Niente diritti di amministratore.
+- oppure **`DualMix-<v>-win-x64.zip`** → estrai → `Installa DualMix.cmd` (stesse operazioni, senza `.exe`).
 
-The program is already installed in `%LOCALAPPDATA%\Programs\DualMix` and starts with Windows.
-To reinstall or update after changing the code:
+Il setup scarica il runtime .NET 10 Desktop se manca (da Microsoft, solo per l'utente), chiude un DualMix in esecuzione,
+toglie quello installato alla vecchia maniera, installa in `%LOCALAPPDATA%\Programs\DualMix`, crea collegamento e voce
+in «App installate», avvia. Scrive tutto in `%APPDATA%\DualMix\setup.log`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1
-```
+- Togliere solo il vecchio DualMix (fino alla 2.1.0): `Rimuovi-vecchio-DualMix.zip` → `Rimuovi vecchio DualMix.cmd`.
+- Disinstallare: «App installate» di Windows, oppure `Disinstalla DualMix.cmd` (`-RemoveDrivers`, `-Purge`).
 
-You do not need admin rights. If the .NET 8 SDK is missing, the script downloads it into `%USERPROFILE%\.dotnet`.
+## La rotella
 
-To uninstall:
+| Funzione | Gira | Premi |
+|---|---|---|
+| **Volume generale** (predefinita a ogni avvio) | volume di Windows, applicato alla scheda audio | muto |
+| **Mix Game/Chat** | sinistra più Game, destra più Chat | **muto di tutto** (opzione: torna a «Bilanciato») |
+| Volume Game / Volume Chat | volume del canale | muto del canale |
 
-```powershell
-powershell -ExecutionPolicy Bypass -File uninstall.ps1            # removes the program
-powershell -ExecutionPolicy Bypass -File uninstall.ps1 -Purge     # also removes settings and logs
-```
+- Cambiare funzione: doppia pressione, Ctrl + pressione, o la scorciatoia (Ctrl+Alt+M, con ripiego automatico su
+  K, R, F12 se è già occupata).
+- Ctrl + gira: l'altra funzione, al momento.
+- «Funzione all'avvio» (Rotella e tasti → Comportamento): da dove riparte la rotella a ogni avvio di DualMix.
+  Predefinito: Volume generale. «L'ultima usata» ripristina il comportamento delle versioni fino alla 2.1.
 
----
+## Aggiornamenti
 
-## How it separates Game and Chat
+Schema preso dall'update checker di RP Soundboard: un documento di versione a un indirizzo fisso dice qual è l'ultima
+versione e dove sta il pacchetto; il programma confronta, scarica nella cartella temporanea e lancia un installer che
+aspetta la chiusura del programma, lo sostituisce e lo riavvia.
 
-### 1. Per application (default, no drivers)
+- Documento: `version.json` (`product`, `version`, `url`, `sha256`, `notes`). Predefinito:
+  `https://raw.githubusercontent.com/gamebaiters/DualMix/main/version.json`.
+- `url` può essere relativo al documento. Il pacchetto è lo zip del rilascio; viene rifiutato se lo SHA-256 non
+  corrisponde. Solo https.
+- Controllo un minuto dopo l'avvio e poi una volta al giorno. **Automatici** (predefinito): la versione trovata
+  all'avvio si installa da sola e DualMix riparte; una trovata più tardi viene solo annunciata (niente interruzioni
+  dell'audio a metà partita) e si installa al prossimo avvio o da Generale → Aggiornamenti. **Avvisa**, **Mai**.
+- La sorgente si cambia con `UpdateFeed` in `%APPDATA%\DualMix\settings.json`: un indirizzo https oppure una
+  cartella che contiene `version.json` e lo zip (per esempio una cartella sincronizzata).
 
-DualMix finds every application that plays audio, on every output device. It puts each one in a channel:
+Codice: `DualMix/Core/Updater.cs`; pianificazione in `App.xaml.cs` (`AutoUpdateAsync`); setup in
+`packaging/setup/setup.ps1` (`-Update`).
 
-- **Chat** (automatic): Discord (and PTB/Canary/Vesktop), TeamSpeak 3/5/6, Mumble, Skype, Teams, Zoom,
-  Slack, Signal, WhatsApp, Telegram, Element, Guilded…
-- **Game** (automatic): everything else, including games, browsers, VLC, Spotify and so on.
-- You can change the channel of any app from the **Applicazioni** tab ("Automatico", "Game", "Chat",
-  "Ignora"). Each app also has its own volume inside its channel.
-
-DualMix then sets each app's volume in the Windows mixer to *channel volume × mix × app volume*.
-
-Details:
-- On first sight, DualMix **inherits** the volume each app already had in the Windows mixer.
-  Starting DualMix never makes anything louder.
-- If you move an app's volume in the Windows mixer, DualMix adopts it as that app's new volume
-  instead of fighting you.
-- When DualMix exits, it puts back each app's own volume, without the mix applied.
-- "Anche non attive" shows the remembered apps. "Aggiungi…" lets you pre-assign an .exe that has
-  not played anything yet.
-
-### 2. Virtual devices (like Sonar)
-
-This mode gives two real, separate audio outputs, **Game** and **Chat**. DualMix captures them and
-mixes them onto your headset. It needs a virtual audio cable driver, because Windows cannot create
-audio devices without a signed driver:
-
-1. Install **VB-Cable A+B** from vb-audio.com (or Voicemeeter Banana), then restart.
-2. In DualMix go to **Modalità e dispositivi → Dispositivi virtuali**.
-3. Choose `CABLE-A Input` as Game, `CABLE-B Input` as Chat, and your headset as the real output.
-4. Click **Applica**.
-
-With the options turned on, DualMix does the following:
-- It makes Game the default Windows device and Chat the default communications device.
-- It routes each app to the right output by itself, based on its channel. It uses the same Windows
-  feature as "Volume app e preferenze dispositivo". Leave the output on "Predefinito" in
-  Discord and TeamSpeak.
-- When it exits or changes mode, it **puts everything back**: default devices and per-app outputs.
-  If it crashes, it cleans up on the next start.
-
-The audio engine captures each virtual cable in loopback and resamples it with clock-drift
-compensation. It sums the two with the mix gains, using smooth gain ramps and a soft limiter,
-and plays the result on the headset. Latency is configurable (10–50 ms). If the output device
-disappears, for example when you switch the headset off, it restarts by itself.
-
----
-
-## NuPhy Kick75 knob
-
-The Kick75 knob sends the standard multimedia keys **Volume +**, **Volume −** and **Mute**.
-DualMix intercepts them with a global keyboard hook. In the **Rotella** tab you choose the behaviour:
-
-| Mode | Turn the knob | Ctrl + turn | Press |
-|---|---|---|---|
-| Mix with modifier (default) | Windows volume | **Game/Chat mix** | mute (Ctrl+press = mix to center) |
-| Always mix | **Game/Chat mix** | – | mute, or "mix to center" |
-| Press to switch | volume **or** mix | – | switches Volume ↔ Mix |
-| Off | Windows volume | – | mute |
-
-- Left (counter-clockwise) moves towards **Game**; right moves towards **Chat**. You can invert it.
-- The step per click is configurable (default 5%). When the knob crosses the center it **stops at
-  the center** for one click, so the balanced position is easy to find.
-- Each change shows a small indicator above the game (bottom center). It is click-through and does
-  not steal focus.
-- The **Prova** box shows what the keyboard sends, so you can check the knob is recognised.
-
-### Dedicated keys with VIA (optional)
-
-To keep the knob for Windows volume and still have a separate control, you can remap keys with VIA.
-The Kick75 is QMK/VIA compatible (usevia.app, or the NuPhy configurator).
-1. Assign the knob (on one layer, for example the Fn layer) or other keys to **F13 / F14 / F15**.
-   These keys do not exist on the keyboard, so they never clash with anything.
-2. In DualMix, go to **Rotella → Tasti dedicati**. Click "Assegna…" and press the key.
-   Assign "Sposta verso Game", "Sposta verso Chat" and "Centra il mix".
-
-Dedicated keys always work, whatever the knob mode is.
-
----
-
-## Other things DualMix does
-
-- **Windows call ducking turned off.** By default Windows lowers every other sound by 80% when it
-  detects a call, which ruins the mix. DualMix turned this off on first start. You can turn it back on
-  in *Generale*.
-- **Tray icon:** left click opens the window. Right click offers Tutto Game / Bilanciato / Tutto Chat,
-  start with Windows, and exit. The tooltip shows the current levels.
-- **Single instance:** launching it again only reopens the window.
-- `DualMix.exe --exit` closes the running instance cleanly. The install/uninstall scripts use it.
-- `DualMix.exe --diag` runs a self-test of the whole audio chain. It writes the result to
-  `%APPDATA%\DualMix\diag.txt`.
-
-## Files
-
-- Settings: `%APPDATA%\DualMix\settings.json`
-- Log: `%APPDATA%\DualMix\dualmix.log`
-- Program: `%LOCALAPPDATA%\Programs\DualMix\`
-- Autostart: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\DualMix`
-
-## Known limitations
-
-- In per-application mode, Discord in a **browser tab** counts as part of the browser. Use the app,
-  or put the browser in Chat.
-- Some anti-cheat systems run games as administrator. While an elevated window has focus, Windows
-  does not deliver keys to non-elevated programs, so the knob does not reach DualMix. The mix still
-  works; only the knob control is affected.
-- An exclusive-fullscreen game hides the on-screen indicator. Borderless fullscreen shows it.
-
-## Code structure
+## Sviluppo
 
 ```
-DualMix/
-  Core/      settings, mix math, app catalog, controller (application state)
-  Audio/     session engine (per-app volumes), virtual router (WASAPI loopback → mix → output),
-             devices / default device / per-app routing, minimal Core Audio interop
-  Input/     global keyboard hook + knob logic
-  UI/        WPF window, OSD, tray icon, dark theme
-  Diagnostics.cs   --diag self-test
-tools/make-icon.ps1   generates the icon
-install.ps1 / uninstall.ps1
+DualMix/                 il programma
+  Core/                  Controller (stato, rotella, volumi), Settings, Updater, integrazione con Windows
+  Audio/                 AudioRouter (loopback WASAPI → mix → uscita), SessionEngine, Devices, DriverSetup
+  Input/                 KeyboardHook (RegisterHotKey + hook), KnobController
+  UI/                    finestra, pagine, icona nell'area di notifica, indicatore a schermo (OsdWindow)
+packaging/               setup\ (setup, uninstall, rimuovi-vecchio), i .cmd, installer.nsi, LEGGIMI.txt
+tools/build-release.sh   pacchetto zip + installer exe + version.json   (Linux: SDK .NET 10, NSIS, zip)
+tools/rilascia.sh        da claudenest: build su dev-linux → artifacts → disco condiviso
+tools/make_icon.py       disegna l'icona (Pillow)
+install.ps1              sul PC con il sorgente: compila e installa con lo stesso setup dei rilasci
+.github/workflows/       release.yml: al push di un tag v<versione> crea la release e aggiorna version.json
 ```
 
-Build by hand: `dotnet build DualMix\DualMix.csproj` (.NET 8 SDK).
+- Compilare: `dotnet build -c Release` in `DualMix/` (Windows, oppure Linux grazie a `EnableWindowsTargeting`).
+- Nuova versione: alza `<Version>` in `DualMix.csproj`, commit, poi `tools/rilascia.sh "novità"` (Nextcloud) oppure
+  `git tag -a v<versione> -m "novità" && git push --tags` (GitHub).
+- Diagnostica: `dotnet DualMix.dll --diag [--quick] [--stress]` → `%APPDATA%\DualMix\diag.txt`.
+  Schermate di tutte le pagine senza toccare l'audio: `--snapshot <cartella>`.
+- Log: `%APPDATA%\DualMix\dualmix.log`.
+
+## Come gira
+
+`conhost.exe --headless dotnet.exe DualMix.dll --supervise --tray`: nessuna finestra, dentro l'host .NET di Microsoft
+(un eseguibile non firmato veniva trattenuto dall'antivirus), con un supervisore che lo riavvia se termina in modo
+anomalo. Avvio all'accesso con l'attività pianificata «DualMix» (Generale → Avvia con Windows).
+
+## Cavi virtuali
+
+VB-CABLE A+B di VB-Audio (pack acquistato): cavo A = «DualMix Game» (5.1, 48 kHz, 24 bit), cavo B = «DualMix Chat»
+(stereo). Il VB-CABLE gratuito singolo non basta. Il volume dell'endpoint di un cavo non tocca l'audio catturato dal
+loopback. L'uscita reale non deve mai diventare un cavo.
