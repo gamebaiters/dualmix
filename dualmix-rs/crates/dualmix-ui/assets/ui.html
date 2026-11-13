@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DualMix</title>
 <style>
 :root {
@@ -368,918 +367,390 @@ input[type="range"].balance-range:hover::-webkit-slider-thumb {
 .link { color: var(--accent-link); text-decoration: none; cursor: pointer; }
 .link:hover { text-decoration: underline; }
 </style>
+<style>
+html, body { background: var(--bg); }
+.icon { font-family: 'Segoe Fluent Icons', 'Segoe MDL2 Assets'; font-style: normal; font-weight: normal; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.app-shell { height: 100vh; }
+.nav { padding-top: 8px; }
+.content-frame { border-top-left-radius: 8px; }
+.knob-line { display: flex; align-items: center; gap: 12px; }
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 14px; margin: 12px 0 8px 0; font-size: 13px; }
+.kv .k { color: var(--text2); }
+.row-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.vol-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.vol-row .pct { width: 44px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); font-size: 13px; }
+.big-level { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cap { font-size: 12px; color: var(--text2); }
+.mix-head { display: flex; justify-content: space-between; align-items: center; }
+.mix-row { display: flex; align-items: center; margin-top: 10px; }
+.mix-side { display: flex; align-items: center; gap: 12px; min-width: 140px; }
+.mix-side.right { justify-content: flex-end; text-align: right; }
+.mix-buttons { display: flex; justify-content: center; gap: 8px; margin-top: 10px; }
+.app-row { grid-template-columns: 32px minmax(0,1fr) auto 210px; }
+.app-name { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-sub { font-size: 12px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg-btn.small { min-width: 52px; height: 26px; font-size: 12.5px; padding: 0 8px; }
+.empty { text-align: center; padding: 40px 20px; color: var(--text2); }
+.infobar { border-radius: 8px; padding: 10px 14px; margin: 6px 0 10px 0; display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--surface-border); }
+.tech { white-space: pre-wrap; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: var(--text2); margin-top: 8px; }
+.wiz-step { color: var(--text2); font-size: 12.5px; }
+.wiz-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.radio-card.card { padding: 12px 14px; }
+.btn-key { min-width: 160px; }
+</style>
 </head>
 <body>
 <div id="root"></div>
 <script>
-const LOC_TABLE = __LOC_JSON__;
-const APP_ICON_URI = "__ICON_URI__";
+'use strict';
+const LOC = __LOC_JSON__;
+const ICON_URI = "__ICON_URI__";
+const KIND = "__WINDOW_KIND__";
+const IC = { mixer:'', apps:'', knob:'', audio:'', general:'', ham:'', game:'', chat:'',
+  vol:'', mute:'', phones:'', download:'', repair:'', search:'', info:'', warning:'',
+  error:'', success:'', reset:'', folder:'', add:'', down:'', up:'', cycle:'', test:'' };
 
-let S = null;
-let dragLocks = {};
-let appsFilter = "";
-let showInactive = false;
-let expandCycle = false;
-let expandKeys = false;
-let expandSignal = true;
-let navCollapsed = false;
-let isMaximized = false;
-let meters = { game: 0, chat: 0, out: 0 };
+let S = null;                 // last state from DualMix
+const V = { page: 'mixer', nav: false, filter: '', inactive: false, exCycle: false, exKeys: false, exSignal: false, step: 1, wiz: null };
+let interacting = false;      // a slider is being dragged / a list is open: renders wait
+let pending = false;
 
-function setRangePct(el) {
-  if (!el) return;
-  const min = Number(el.min || 0);
-  const max = Number(el.max || 100);
-  const val = Number(el.value || 0);
-  const pct = max > min ? ((val - min) * 100 / (max - min)) : 0;
-  el.style.setProperty('--pct', Math.max(0, Math.min(100, pct)) + '%');
+function lang() { return S && S.lang === 'it' ? 1 : 0; }
+function T(k, ...a) {
+  const e = LOC[k]; let s = e ? e[lang()] : k;
+  return s.replace(/\{(\d+)(:[^}]*)?\}/g, (m, i) => (a[+i] !== undefined ? a[+i] : ''));
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function ic(n, size) { return `<span class="icon" style="font-size:${size||16}px">${IC[n]||''}</span>`; }
+function send(obj) { try { window.chrome.webview.postMessage(JSON.stringify(obj)); } catch (e) {} }
+function sw(checked, cmd, extra, disabled) {
+  return `<label class="switch"><input type="checkbox" ${checked?'checked':''} ${disabled?'disabled':''} data-cmd='${esc(JSON.stringify(Object.assign({cmd}, extra||{})))}' onchange="onSwitch(this)"><span class="switch-track"></span></label>`;
+}
+function onSwitch(el) { const o = JSON.parse(el.dataset.cmd); o.value = el.checked; send(o); }
+function seg(items, active, cmd, extra, small) {
+  return `<div class="segment">${items.map(([v, label]) => `<button class="seg-btn ${small?'small':''} ${v===active?'active':''}" onclick='send(${esc(JSON.stringify(Object.assign({cmd, value:v}, extra||{})))})'>${esc(label)}</button>`).join('')}</div>`;
+}
+function range(id, value, min, max, cmd, extra, cls, step) {
+  const pct = (value - min) * 100 / (max - min);
+  return `<input type="range" class="fluent-range ${cls||''}" id="${id}" min="${min}" max="${max}" step="${step||1}" value="${value}" style="--pct:${pct}%" data-cmd='${esc(JSON.stringify(Object.assign({cmd}, extra||{})))}' oninput="onRange(this)">`;
+}
+function onRange(el) {
+  const v = +el.value, min = +el.min, max = +el.max;
+  el.style.setProperty('--pct', ((v - min) * 100 / (max - min)) + '%');
+  const lbl = document.getElementById(el.id + '-lbl'); if (lbl) lbl.textContent = Math.round(v) + '%';
+  const o = JSON.parse(el.dataset.cmd); o.value = v; send(o);
+}
+function card(inner, cls) { return `<div class="card ${cls||''}">${inner}</div>`; }
+function optRow(title, desc, right, icon) {
+  return card(`<div class="card-row"><div class="card-left">${icon?ic(icon,18):''}<div><div class="card-title">${esc(title)}</div>${desc?`<div class="card-desc">${esc(desc)}</div>`:''}</div></div><div class="row-right">${right}</div></div>`);
+}
+function shortName(n) { const i = String(n||'').indexOf(' ('); return i > 0 ? n.slice(0, i) : (n||''); }
+
+// ------------------------------------------------------------------------------------------ banner
+function banner() {
+  const st = S.status; if (!st || !st.title) return '';
+  const sev = st.severity;
+  if (sev === 'success') return '';
+  const icon = { info:'info', warning:'warning', error:'error', success:'success' }[sev];
+  let btn = '';
+  if (st.needsRepair) btn = `<button class="btn btn-primary" ${st.setupBusy?'disabled':''} title="${esc(T('Banner.Repair.Tip'))}" onclick="send({cmd:'repair'})">${ic('repair')} ${esc(T('Banner.Repair'))}</button>`;
+  else if (st.needsDriver) btn = `<button class="btn btn-primary" ${st.setupBusy?'disabled':''} title="${esc(T('Banner.InstallDriver.Tip'))}" onclick="send({cmd:'installDriver'})">${ic('download')} ${esc(T('Banner.InstallDriver'))}</button>`;
+  return `<div class="banner banner-${sev}"><div class="card-left"><span class="banner-icon-${sev}">${ic(icon,18)}</span><div><div class="card-title">${esc(st.title)}</div><div class="card-desc">${esc(st.message)}</div></div></div>${btn}</div>`;
 }
 
-function clearDragLocks() {
-  if (Object.keys(dragLocks).length > 0) dragLocks = {};
-}
-window.addEventListener('pointerup', clearDragLocks);
-window.addEventListener('pointercancel', clearDragLocks);
-window.addEventListener('blur', clearDragLocks);
-
-function post(obj) {
-  if (window.chrome && window.chrome.webview) {
-    window.chrome.webview.postMessage(JSON.stringify(obj));
-  }
-}
-
-function T(key, ...args) {
-  const pair = LOC_TABLE[key];
-  let tpl = pair ? (S && S.lang === 'it' ? pair[1] : pair[0]) : key;
-  for (let i = 0; i < args.length; i++) {
-    tpl = tpl.replace(new RegExp('\\{' + i + '(?::[^}]*)?\\}', 'g'), String(args[i]));
-  }
-  return tpl;
-}
-
-function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function shortDev(name) {
-  const i = (name || '').indexOf(' (');
-  return i > 0 ? name.slice(0, i) : (name || '—');
-}
-
-function svg(name, size=18) {
-  const p = {
-    options: '<path d="M3 6h18M7 6v0M3 12h18M15 12v0M3 18h18M9 18v0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="6" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18" r="2" fill="currentColor"/>',
-    apps: '<rect x="3" y="3" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><rect x="13" y="3" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><rect x="3" y="13" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><rect x="13" y="13" width="8" height="8" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/>',
-    keyboard: '<rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M6 10h2M11 10h2M16 10h2M7 15h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-    speaker: '<path d="M4 9v6h4l5 4V5L8 9H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>',
-    mute: '<path d="M4 9v6h4l5 4V5L8 9H4z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-    settings: '<circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 3v2M12 19v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M3 12h2M19 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-    games: '<rect x="3" y="6" width="18" height="12" rx="5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8 10v4M6 12h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="15.5" cy="10.5" r="1" fill="currentColor"/><circle cx="17.5" cy="13.5" r="1" fill="currentColor"/>',
-    chat: '<path d="M4 5h16a2 2 0 012 2v9a2 2 0 01-2 2H9l-5 3v-3a2 2 0 01-2-2V7a2 2 0 012-2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/>',
-    headphones: '<path d="M4 15v-3a8 8 0 0116 0v3" stroke="currentColor" stroke-width="1.8" fill="none"/><rect x="2" y="13" width="4" height="6" rx="1.5" stroke="currentColor" stroke-width="1.8" fill="none"/><rect x="18" y="13" width="4" height="6" rx="1.5" stroke="currentColor" stroke-width="1.8" fill="none"/>',
-    search: '<circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-    add: '<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-    reset: '<path d="M4 12a8 8 0 102.3-5.6L4 8.5M4 4v4.5h4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
-    check: '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8.5 12.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
-    warn: '<path d="M12 3L2.5 19.5h19L12 3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M12 9.5v4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1" fill="currentColor"/>',
-    err: '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
-    info: '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 11v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="8" r="1" fill="currentColor"/>',
-    chevron: '<path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
-    hamburger: '<path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
-    download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
-    wrench: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" fill="none"/>',
-    tbmin: '<path d="M7 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
-    tbmax: '<rect x="7" y="7" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/>',
-    tbrestore: '<rect x="6" y="8" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M9 8V6.5A1.5 1.5 0 0110.5 5h6A1.5 1.5 0 0118 6.5v6A1.5 1.5 0 0116.5 14H15" stroke="currentColor" stroke-width="1.5" fill="none"/>',
-    tbclose: '<path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
-  };
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24">${p[name] || ''}</svg>`;
-}
-
-function renderTitleBar(title, allowMax) {
-  return `<header class="titlebar" ${allowMax ? 'ondblclick="if(!event.target.closest(\'.tb-actions\'))post({cmd:\'windowToggleMaximize\'})"' : ''}>
-    <div class="tb-left">
-      <img src="${APP_ICON_URI}" width="16" height="16" alt="">
-      <span class="tb-title">${esc(title)}</span>
-    </div>
-    <div class="tb-actions">
-      <button class="tb-btn" tabindex="-1" onclick="post({cmd:'windowMinimize'})" title="—">${svg('tbmin', 14)}</button>
-      ${allowMax ? `<button class="tb-btn" tabindex="-1" onclick="post({cmd:'windowToggleMaximize'})" title="${isMaximized ? 'Restore' : 'Maximize'}">${svg(isMaximized ? 'tbrestore' : 'tbmax', 14)}</button>` : ''}
-      <button class="tb-btn tb-close" tabindex="-1" onclick="post({cmd:'hideWindow'})" title="✕">${svg('tbclose', 14)}</button>
-    </div>
-  </header>`;
-}
-
-function renderBanner(showSuccess) {
-  if (!S) return '';
-  if (S.severity === 'success' && !showSuccess && !S.setupBusy) return '';
-  const cls = 'banner-' + S.severity;
-  const ic = S.severity === 'success' ? 'check' : S.severity === 'warning' ? 'warn' : S.severity === 'error' ? 'err' : 'info';
-  return `<div class="banner ${cls}">
-    <div class="card-left">
-      <div class="banner-icon-${S.severity}">${svg(ic, 20)}</div>
-      <div>
-        <div class="card-title">${esc(S.statusTitle)}</div>
-        ${S.statusMessage ? `<div class="card-desc">${esc(S.statusMessage)}</div>` : ''}
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      ${S.needsRepair && !S.setupBusy ? `<button class="btn" onclick="post({cmd:'bannerRepair'})">${svg('wrench', 15)}${esc(T('Banner.Repair'))}</button>` : ''}
-      ${S.needsDriver && !S.setupBusy && S.engineMode === 'VirtualDevices' ? `<button class="btn btn-primary" onclick="post({cmd:'bannerInstall'})">${svg('download', 15)}${esc(T('Banner.InstallDriver'))}</button>` : ''}
-    </div>
-  </div>`;
-}
-
-function renderMixer() {
-  const dotCls = 'dot-' + S.severity;
-  const gDev = S.gameViaBus ? T('Mixer.GameAppOut', shortDev(S.gameDeviceName)) : S.virtualActive ? T('Mixer.GameDirectCard') : T('Mixer.PerAppVol');
-  const cDev = S.virtualActive ? T('Mixer.GameAppOut', shortDev(S.chatDeviceName)) : T('Mixer.PerAppVol');
+// ------------------------------------------------------------------------------------------ pages
+function pageMixer() {
+  const m = S.mixer;
+  const chip = `<span class="chip" title="${esc(T('Mixer.EngineTip'))}"><span class="dot dot-${S.status.severity}"></span><span id="chip">${esc(S.chip)}</span></span>`;
+  const muteBtn = (on, cmd, tip) => `<button class="btn btn-icon btn-subtle ${on?'muted':''}" title="${esc(tip)}" onclick="send({cmd:'${cmd}'})">${ic(on?'mute':'vol',16)}</button>`;
+  const chan = (which, name, sub, vol, muted, dev, meterCls) => card(`
+      <div class="card-row"><div class="card-left"><div class="badge badge-sm badge-${which}">${ic(which,16)}</div>
+        <div><div class="card-title" style="font-size:16px;font-weight:600">${name}</div><div class="card-desc">${esc(sub)}</div></div></div>
+        ${muteBtn(muted, which==='game'?'toggleGameMute':'toggleChatMute', which==='game'?T('Mixer.MuteGameTip'):T('Mixer.MuteChatTip'))}</div>
+      <div class="vol-row">${range(which+'Vol', vol, 0, 100, which==='game'?'setGameVol':'setChatVol')}<span class="pct" id="${which}Vol-lbl">${vol}%</span></div>
+      <div class="meter-track"><div class="meter-fill ${meterCls}" id="meter-${which}"></div></div>
+      <div class="card-desc" style="margin-top:8px">${esc(dev)}</div>`);
   return `<div class="page">
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">${esc(T('Mixer.Title'))}</h1>
-        <p class="page-sub">${esc(T('Mixer.Subtitle'))}</p>
+    <div class="page-header"><div><h1 class="page-title">${esc(T('Mixer.Title'))}</h1><p class="page-sub">${esc(T('Mixer.Subtitle'))}</p></div>${chip}</div>
+    ${banner()}
+    ${card(`<div class="mix-head"><div style="font-size:20px;font-weight:600">${esc(T('Mixer.ChatMix'))}</div><div class="cap" style="font-size:13px">${esc(m.mixText)}</div></div>
+      <div class="mix-row">
+        <div class="mix-side"><div class="badge badge-game">${ic('game',18)}</div><div><div class="cap">Game</div><div class="big-level">${esc(m.gameLevel)}</div></div></div>
+        <div class="balance-box" title="${esc(T('Mixer.MixTip'))}"><div class="balance-track"></div><div class="balance-center"></div>
+          ${range('mix', m.mix, -100, 100, 'setMix', null, 'balance-range')}</div>
+        <div class="mix-side right"><div><div class="cap">Chat</div><div class="big-level">${esc(m.chatLevel)}</div></div><div class="badge badge-chat">${ic('chat',18)}</div></div>
       </div>
-      <div class="chip" title="${esc(T('Mixer.EngineTip'))}">
-        <span class="dot ${dotCls}"></span>
-        <span id="mx-chip">${esc(S.engineChip)}</span>
-      </div>
-    </div>
-    ${renderBanner(false)}
-    <div class="card card-hero">
-      <div class="card-row" style="margin-bottom:14px">
-        <span style="font-size:20px;font-weight:600">ChatMix</span>
-        <span id="mx-text" style="font-size:13px;color:var(--text2)">${esc(S.mixText)}</span>
-      </div>
-      <div style="display:flex;align-items:center">
-        <div style="display:flex;align-items:center;gap:12px;width:140px">
-          <div class="badge badge-game">${svg('games', 20)}</div>
-          <div>
-            <div class="card-desc">Game</div>
-            <div id="mx-gval" style="font-size:24px;font-weight:600">${esc(S.gameLevelText)}</div>
-          </div>
-        </div>
-        <div class="balance-box">
-          <div class="balance-track"></div>
-          <div class="balance-center"></div>
-          <input id="sl-mix" class="fluent-range balance-range" type="range" min="-100" max="100" step="1"
-            value="${S.mixPercent}" title="${esc(T('Mixer.MixTip'))}"
-            onmousedown="dragLocks.mix=1" onmouseup="delete dragLocks.mix" ontouchend="delete dragLocks.mix"
-            oninput="post({cmd:'setMix',percent:Number(this.value)})"
-            ondblclick="post({cmd:'resetMix'})">
-        </div>
-        <div style="display:flex;align-items:center;gap:12px;width:140px;justify-content:flex-end">
-          <div style="text-align:right">
-            <div class="card-desc">Chat</div>
-            <div id="mx-cval" style="font-size:24px;font-weight:600">${esc(S.chatLevelText)}</div>
-          </div>
-          <div class="badge badge-chat">${svg('chat', 20)}</div>
-        </div>
-      </div>
-      <div style="display:flex;justify-content:center;gap:8px;margin-top:12px">
-        <button class="btn" onclick="post({cmd:'setMix',percent:-100})" title="${esc(T('Mixer.AllGameTip'))}">${esc(T('Mixer.AllGame'))}</button>
-        <button class="btn" onclick="post({cmd:'resetMix'})" title="${esc(T('Mixer.BalancedTip'))}">${esc(T('Mixer.Balanced'))}</button>
-        <button class="btn" onclick="post({cmd:'setMix',percent:100})" title="${esc(T('Mixer.AllChatTip'))}">${esc(T('Mixer.AllChat'))}</button>
-      </div>
-    </div>
-
+      <div class="mix-buttons">
+        <button class="btn" title="${esc(T('Mixer.AllGameTip'))}" onclick="send({cmd:'allGame'})">${esc(T('Mixer.AllGame'))}</button>
+        <button class="btn" title="${esc(T('Mixer.BalancedTip'))}" onclick="send({cmd:'resetMix'})">${esc(T('Mixer.Balanced'))}</button>
+        <button class="btn" title="${esc(T('Mixer.AllChatTip'))}" onclick="send({cmd:'allChat'})">${esc(T('Mixer.AllChat'))}</button>
+      </div>`, 'card-hero')}
     <div class="grid-2">
-      <div class="card">
-        <div class="card-row">
-          <div class="card-left">
-            <div class="badge badge-sm badge-game">${svg('games', 16)}</div>
-            <div>
-              <div style="font-size:16px;font-weight:600">Game</div>
-              <div class="card-desc">${esc(T('Mixer.GameSub'))}</div>
-            </div>
-          </div>
-          <button class="btn btn-subtle btn-icon ${S.gameMuted?'muted':''}" onclick="post({cmd:'setGameMuted',muted:${!S.gameMuted}})" title="${esc(T('Mixer.MuteGameTip'))}">
-            ${svg(S.gameMuted ? 'mute' : 'speaker', 18)}
-          </button>
-        </div>
-        <div class="slider-wrap" style="margin-top:14px">
-          <input id="sl-gvol" class="fluent-range" type="range" min="0" max="100" value="${S.gameVolumePercent}" style="--pct:${S.gameVolumePercent}%"
-            onmousedown="dragLocks.gvol=1" onmouseup="delete dragLocks.gvol"
-            oninput="setRangePct(this);document.getElementById('tx-gvol').textContent=this.value+'%';post({cmd:'setGameVolume',percent:Number(this.value)})">
-          <span id="tx-gvol" style="width:42px;text-align:right">${S.gameVolumePercent}%</span>
-        </div>
-        <div class="meter-track"><div id="mt-game" class="meter-fill meter-game" style="transform:scaleX(${meters.game})"></div></div>
-        <div class="card-desc" style="margin-top:8px">${esc(gDev)}</div>
-      </div>
-
-      <div class="card">
-        <div class="card-row">
-          <div class="card-left">
-            <div class="badge badge-sm badge-chat">${svg('chat', 16)}</div>
-            <div>
-              <div style="font-size:16px;font-weight:600">Chat</div>
-              <div class="card-desc">${esc(T('Mixer.ChatSub'))}</div>
-            </div>
-          </div>
-          <button class="btn btn-subtle btn-icon ${S.chatMuted?'muted':''}" onclick="post({cmd:'setChatMuted',muted:${!S.chatMuted}})" title="${esc(T('Mixer.MuteChatTip'))}">
-            ${svg(S.chatMuted ? 'mute' : 'speaker', 18)}
-          </button>
-        </div>
-        <div class="slider-wrap" style="margin-top:14px">
-          <input id="sl-cvol" class="fluent-range" type="range" min="0" max="100" value="${S.chatVolumePercent}" style="--pct:${S.chatVolumePercent}%"
-            onmousedown="dragLocks.cvol=1" onmouseup="delete dragLocks.cvol"
-            oninput="setRangePct(this);document.getElementById('tx-cvol').textContent=this.value+'%';post({cmd:'setChatVolume',percent:Number(this.value)})">
-          <span id="tx-cvol" style="width:42px;text-align:right">${S.chatVolumePercent}%</span>
-        </div>
-        <div class="meter-track"><div id="mt-chat" class="meter-fill meter-chat" style="transform:scaleX(${meters.chat})"></div></div>
-        <div class="card-desc" style="margin-top:8px">${esc(cDev)}</div>
-      </div>
+      ${chan('game', 'Game', T('Mixer.GameSub'), m.gameVol, m.gameMuted, m.gameDevice, 'meter-game')}
+      ${chan('chat', 'Chat', T('Mixer.ChatSub'), m.chatVol, m.chatMuted, m.chatDevice, 'meter-chat')}
     </div>
-
     <div class="section-header">${esc(T('Mixer.OutputHeader'))}</div>
-    <div class="card">
-      <div class="card-row">
-        <div class="card-left">
-          <div class="badge badge-sm badge-neutral">${svg('headphones', 16)}</div>
-          <div style="flex:1;min-width:0">
-            <div class="card-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(S.outputName)}</div>
-            <div id="mx-fmt" class="card-desc">${esc(S.formatText)}</div>
-            <div class="meter-track" style="height:3px;margin-top:8px"><div id="mt-out" class="meter-fill meter-accent" style="transform:scaleX(${meters.out})"></div></div>
-          </div>
-        </div>
-        <div class="slider-wrap" style="width:280px;flex-shrink:0">
-          <button class="btn btn-subtle btn-icon ${S.outputMuted?'muted':''}" ${S.outputVolumeAvailable?'':'disabled'}
-            onclick="post({cmd:'setOutputMuted',muted:${!S.outputMuted}})" title="${esc(T('Mixer.MuteOutputTip'))}">
-            ${svg(S.outputMuted ? 'mute' : 'speaker', 18)}
-          </button>
-          <input id="sl-ovol" class="fluent-range" type="range" min="0" max="100" value="${S.outputVolumePercent}" style="--pct:${S.outputVolumePercent}%"
-            ${S.outputVolumeAvailable?'':'disabled'} title="${esc(T('Mixer.MasterVolumeTip'))}"
-            onmousedown="dragLocks.ovol=1" onmouseup="delete dragLocks.ovol"
-            oninput="setRangePct(this);document.getElementById('tx-ovol').textContent=this.value+'%';post({cmd:'setOutputVolume',percent:Number(this.value)})">
-          <span id="tx-ovol" style="width:42px;text-align:right">${S.outputVolumePercent}%</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:10px;padding:10px 18px">
-      <div class="card-row">
-        <div class="card-left">
-          ${svg('keyboard', 18)}
-          <div style="font-size:13px;color:var(--text2)">
-            ${esc(T('Mixer.KnobPrefix'))} <strong style="color:var(--text)">${esc(S.knobTargetText)}</strong>${esc(T('Mixer.KnobHintMid'))} <strong style="color:var(--text)">${esc(S.knobHotkeyText)}</strong>
-          </div>
-        </div>
-        <button class="btn btn-subtle" onclick="post({cmd:'setTab',tab:2})">${esc(T('Mixer.KnobSettings'))}</button>
-      </div>
-    </div>
+    ${card(`<div class="card-row"><div class="card-left"><div class="badge badge-sm badge-neutral">${ic('phones',16)}</div>
+        <div style="min-width:0;flex:1"><div class="card-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.outputName)}</div><div class="card-desc">${esc(m.formatText)}</div>
+        <div class="meter-track" style="max-width:360px"><div class="meter-fill meter-accent" id="meter-out"></div></div></div></div>
+        <div class="row-right" style="width:300px">${muteBtn(m.outMuted, 'toggleOutMute', T('Mixer.MuteOutputTip'))}
+          <div class="slider-wrap" title="${esc(T('Mixer.MasterVolumeTip'))}">${m.outAvail ? range('outVol', m.outVol, 0, 100, 'setOutVol') : range('outVol', 0, 0, 100, 'setOutVol').replace('<input', '<input disabled')}<span class="pct" id="outVol-lbl" style="width:44px;text-align:right">${m.outAvail?m.outVol+'%':'—'}</span></div></div></div>`)}
+    ${card(`<div class="card-row"><div class="card-left">${ic('knob',18)}<div class="card-desc" style="font-size:13px;margin:0">${esc(T('Mixer.KnobPrefix'))} <b style="color:var(--text)">${esc(m.knobTargetText)}</b>${esc(T('Mixer.KnobHintMid'))} <b style="color:var(--text)">${esc(m.hotkeyText)}</b></div></div>
+        <button class="btn btn-subtle" onclick="nav('knob')">${esc(T('Mixer.KnobSettings'))}</button></div>`)}
   </div>`;
 }
 
-function renderApps() {
-  const f = appsFilter.trim().toLowerCase();
-  const rows = (S.apps || []).filter(a => {
-    if (!showInactive && !a.active) return false;
-    if (!f) return true;
-    return a.displayName.toLowerCase().includes(f) || a.key.toLowerCase().includes(f);
-  });
+function pageApps() {
+  const f = V.filter.trim().toLowerCase();
+  const rows = (S.apps || []).filter(a => (a.live || V.inactive) && (!f || a.name.toLowerCase().includes(f) || a.key.toLowerCase().includes(f)));
+  const list = rows.map(a => {
+    const chans = [['game', 'Game'], ['chat', 'Chat'], ['direct', T('Common.Direct')]].filter(c => !(a.system && c[0] === 'direct'));
+    const auto = (!a.system && a.explicit) ? `<button class="btn btn-icon btn-subtle" title="${esc(T('Apps.AutoResetTip'))}" onclick='send({cmd:"resetAppChannel",key:${esc(JSON.stringify(a.key))}})'>${ic('reset',14)}</button>` : '<span style="width:34px"></span>';
+    const id = 'app-' + btoa(unescape(encodeURIComponent(a.key))).replace(/[^a-zA-Z0-9]/g, '');
+    return card(`<div class="app-row" style="padding:0" title="${esc(a.hint)}">
+        <div class="app-avatar">${esc((a.name || '?').charAt(0).toUpperCase())}</div>
+        <div style="min-width:0"><div class="app-name">${esc(a.name)}</div><div class="app-sub">${esc(a.sub)}</div>
+          <div class="meter-track" style="margin-top:5px"><div class="meter-fill ${a.channel==='chat'?'meter-chat':a.channel==='game'?'meter-game':'meter-accent'}" data-app="${esc(a.key)}"></div></div></div>
+        <div style="display:flex;align-items:center;gap:6px">${seg(chans, a.channel, 'setAppChannel', {key: a.key}, true)}${auto}</div>
+        <div class="slider-wrap" title="${esc(T('Apps.ColVolume'))}">${range(id, a.volume, 0, 100, 'setAppVolume', {key: a.key})}<span class="pct" id="${id}-lbl" style="width:40px;text-align:right">${a.volume}%</span></div>
+      </div>`, a.active ? '' : 'inactive-card');
+  }).join('');
   return `<div class="page">
-    <h1 class="page-title">${esc(T('Apps.Title'))}</h1>
-    <p class="page-sub" style="margin-bottom:20px">${esc(T('Apps.Subtitle'))}</p>
+    <div class="page-header"><div><h1 class="page-title">${esc(T('Apps.Title'))}</h1><p class="page-sub">${esc(T('Apps.Subtitle'))}</p></div></div>
     <div class="apps-toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">${svg('search', 16)}</span>
-        <input id="apps-search" class="fluent-input" type="text" placeholder="${esc(T('Apps.SearchPlaceholder'))}"
-          value="${esc(appsFilter)}" oninput="appsFilter=this.value;render()">
-      </div>
-      <div style="flex:1"></div>
-      <label class="chk-row" style="gap:10px">
-        <span class="switch"><input type="checkbox" ${showInactive?'checked':''} onchange="showInactive=this.checked;render()"><span class="switch-track"></span></span>
-        <span>${esc(T('Apps.ShowInactive'))}</span>
-      </label>
-      <button class="btn" onclick="post({cmd:'pickAddApp'})" title="${esc(T('Apps.AddAppTip'))}">${svg('add', 16)} ${esc(T('Apps.AddApp'))}</button>
+      <div class="search-wrap"><span class="search-icon">${ic('search',14)}</span><input id="search" class="fluent-input" placeholder="${esc(T('Apps.SearchPlaceholder'))}" value="${esc(V.filter)}" oninput="V.filter=this.value;render(true)"></div>
+      <label class="chk-row"><input type="checkbox" ${V.inactive?'checked':''} onchange="V.inactive=this.checked;render(true)"> ${esc(T('Apps.ShowInactive'))}</label>
+      <span style="flex:1"></span>
+      <button class="btn" title="${esc(T('Apps.AddAppTip'))}" onclick="send({cmd:'addApp'})">${ic('add',14)} ${esc(T('Apps.AddApp'))}</button>
     </div>
-
-    <div style="display:grid;grid-template-columns:1fr 232px 36px 176px;gap:12px;padding:0 16px 6px 16px" class="card-desc">
-      <span>${esc(T('Apps.ColApp'))}</span>
-      <span>${esc(T('Apps.ColChannel'))}</span>
-      <span></span>
-      <span>${esc(T('Apps.ColVolume'))}</span>
-    </div>
-
-    ${rows.length === 0 ? `<div class="card" style="padding:32px;text-align:center">
-      <div style="font-size:16px;font-weight:600;margin-bottom:4px">${esc(T('Apps.EmptyTitle'))}</div>
-      <div class="card-desc" style="max-width:420px;margin:0 auto">${esc(T('Apps.EmptyBody'))}</div>
-    </div>` : rows.map(a => {
-      const k = esc(a.key);
-      const setCh = (ch) => a.isSystem ? `post({cmd:'setSystemChannel',channel:'${ch}'})` : `post({cmd:'setAppChannel',key:${JSON.stringify(a.key)},channel:'${ch}'})`;
-      return `<div class="card app-row ${a.active?'':'inactive'}" data-app="${k}">
-        <div class="app-avatar">${esc(a.initial)}</div>
-        <div style="min-width:0">
-          <div class="card-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${k}">${esc(a.displayName)}</div>
-          <div class="card-desc" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(a.hint)}">${esc(a.subtitle)}</div>
-          <div class="meter-track" style="height:3px;max-width:220px;margin-top:6px"><div class="meter-fill meter-accent" data-peak="${k}" style="transform:scaleX(${Math.sqrt(Math.min(1,a.peak))})"></div></div>
-        </div>
-        <div class="segment">
-          <button class="seg-btn ${a.channel==='Game'?'active':''}" onclick="${setCh('Game')}" title="${esc(T('Apps.GameTip'))}">Game</button>
-          <button class="seg-btn ${a.channel==='Chat'?'active':''}" onclick="${setCh('Chat')}" title="${esc(T('Apps.ChatTip'))}">Chat</button>
-          <button class="seg-btn ${a.channel==='Ignore'?'active':''}" onclick="${setCh('Ignore')}" title="${esc(T('Apps.DirectTip'))}">${esc(T('Common.Direct'))}</button>
-        </div>
-        <div style="width:32px;display:flex;justify-content:center">
-          ${a.isExplicit ? `<button class="btn btn-subtle btn-icon" style="width:32px;height:32px" onclick="post({cmd:'resetAppAuto',key:${JSON.stringify(a.key)}})" title="${esc(T('Apps.AutoResetTip'))}">${svg('reset', 16)}</button>` : ''}
-        </div>
-        <div class="slider-wrap">
-          <input class="fluent-range" type="range" min="0" max="100" value="${a.volumePercent}" style="--pct:${a.volumePercent}%"
-            onmousedown="dragLocks['app:'+${JSON.stringify(a.key)}]=1" onmouseup="delete dragLocks['app:'+${JSON.stringify(a.key)}]"
-            oninput="setRangePct(this);this.nextElementSibling.textContent=this.value+'%';post({cmd:'setAppVolume',key:${JSON.stringify(a.key)},percent:Number(this.value)})">
-          <span style="width:38px;text-align:right;font-size:13px">${a.volumePercent}%</span>
-        </div>
-      </div>`;
-    }).join('')}
+    ${rows.length ? list : `<div class="empty"><div class="card-title">${esc(T('Apps.EmptyTitle'))}</div><div class="card-desc">${esc(T('Apps.EmptyBody'))}</div></div>`}
   </div>`;
 }
 
-function toggleSwitch(checked, onchangeJs) {
-  return `<label class="switch"><input type="checkbox" ${checked?'checked':''} onchange="${onchangeJs}"><span class="switch-track"></span></label>`;
-}
-
-function knobDescribe() {
-  let l, r, p, n;
-  if (S.knobTarget === 'Mix') {
-    l = T('Knob.Describe.MixL'); r = T('Knob.Describe.MixR');
-    p = S.knobMixPressMutes ? T('Knob.Describe.MixPressMute') : T('Knob.Describe.MixPressReset');
-    n = T('Knob.Describe.MixNote');
-  } else if (S.knobTarget === 'Volume') {
-    l = T('Knob.Describe.VolL'); r = T('Knob.Describe.VolR');
-    p = T('Knob.Describe.VolPress'); n = T('Knob.Describe.VolNote');
-    return { l, r, p, n };
-  } else if (S.knobTarget === 'Game') {
-    l = T('Knob.Describe.GameL'); r = T('Knob.Describe.GameR');
-    p = T('Knob.Describe.GamePress'); n = T('Knob.Describe.MixNote');
-  } else {
-    l = T('Knob.Describe.ChatL'); r = T('Knob.Describe.ChatR');
-    p = T('Knob.Describe.ChatPress'); n = T('Knob.Describe.MixNote');
-  }
-  if (S.knobInvert) [l, r] = [r, l];
-  return { l, r, p, n };
-}
-
-function sendKnobOpts(patch) {
-  const o = {
-    cmd: 'setKnobOptions',
-    double_press: S.knobDoublePress,
-    ctrl_press: S.knobCtrlPress,
-    ctrl_alt: S.knobCtrlAlt,
-    enabled: S.knobEnabled,
-    invert: S.knobInvert,
-    mix_press_mutes: S.knobMixPressMutes,
-    ...patch
-  };
-  post(o);
-}
-
-function toggleCycleTarget(t, checked) {
-  let c = [...S.knobCycle];
-  if (checked && !c.includes(t)) c.push(t);
-  if (!checked) c = c.filter(x => x !== t);
-  if (c.length === 0) { render(); return; }
-  post({ cmd: 'setKnobCycle', cycle: c });
-}
-
-function renderKnob() {
-  const d = knobDescribe();
-  const hkText = S.capturingTarget === 'hotkey' ? (S.capturePrompt || T('Knob.HotkeyPress')) : S.knobHotkeyText;
-  const gText = S.capturingTarget === 'Game' ? T('Knob.KeyPressPrompt') : S.keyMixGameName;
-  const cText = S.capturingTarget === 'Chat' ? T('Knob.KeyPressPrompt') : S.keyMixChatName;
-  const rText = S.capturingTarget === 'Reset' ? T('Knob.KeyPressPrompt') : S.keyMixResetName;
+function pageKnob() {
+  const k = S.knob;
+  const targets = [['Mix', T('Target.Mix')], ['Volume', T('Target.Volume')], ['Game', T('Target.Game')], ['Chat', T('Target.Chat')]];
+  const opt = (name, on) => sw(on, 'setKnobOption', {name});
+  const cycleBox = targets.map(([v, l]) => `<label class="chk-row"><input type="checkbox" ${k.cycle.includes(v)?'checked':''} onchange="toggleCycle('${v}', this.checked)"> ${esc(l)}</label>`).join('');
+  const keyBtn = (which, label) => `<div class="knob-line"><span style="width:200px">${esc(label)}</span><button class="btn btn-key" onclick="send({cmd:'captureKey',which:'${which}'})">${esc(k['key' + which])}</button></div>`;
   return `<div class="page">
-    <h1 class="page-title">${esc(T('Knob.Title'))}</h1>
-    <p class="page-sub" style="margin-bottom:20px">${esc(T('Knob.Subtitle'))}</p>
-
-    <div class="card card-hero">
-      <div style="font-size:16px;font-weight:600;margin-bottom:12px">${esc(T('Knob.ControlCard'))}</div>
-      <div class="segment">
-        ${['Mix','Volume','Game','Chat'].map(t => `<button class="seg-btn ${S.knobTarget===t?'active':''}" style="min-width:110px" onclick="post({cmd:'setKnobTarget',target:'${t}'})">${esc(T('Target.'+t))}</button>`).join('')}
-      </div>
-      <div class="knob-box">
-        <span class="card-desc">${esc(T('Knob.TurnLeft'))}</span><span>${esc(d.l)}</span>
-        <span class="card-desc">${esc(T('Knob.TurnRight'))}</span><span>${esc(d.r)}</span>
-        <span class="card-desc">${esc(T('Knob.Press'))}</span><span>${esc(d.p)}</span>
-      </div>
-      <div class="card-desc" style="margin-top:12px">${esc(d.n)}</div>
-    </div>
-
+    <div class="page-header"><div><h1 class="page-title">${esc(T('Knob.Title'))}</h1><p class="page-sub">${esc(T('Knob.Subtitle'))}</p></div></div>
+    ${card(`<div class="card-title" style="font-size:16px;font-weight:600">${esc(T('Knob.ControlCard'))}</div>
+      <div style="margin-top:10px">${seg(targets, k.target, 'setKnobTarget')}</div>
+      <div class="kv"><span class="k">${esc(T('Knob.TurnLeft'))}</span><span>${esc(k.describe.left)}</span>
+        <span class="k">${esc(T('Knob.TurnRight'))}</span><span>${esc(k.describe.right)}</span>
+        <span class="k">${esc(T('Knob.Press'))}</span><span>${esc(k.describe.press)}</span></div>
+      <div class="card-desc">${esc(k.describe.note)}</div>`, 'card-hero')}
     <div class="section-header">${esc(T('Knob.CycleHeader'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.DoublePress'))}</div><div class="card-desc">${esc(T('Knob.DoublePressDesc'))}</div></div>
-      ${toggleSwitch(S.knobDoublePress, "sendKnobOpts({double_press:this.checked})")}
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.CtrlPress'))}</div><div class="card-desc">${esc(T('Knob.CtrlPressDesc'))}</div></div>
-      ${toggleSwitch(S.knobCtrlPress, "sendKnobOpts({ctrl_press:this.checked})")}
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.Hotkey'))}</div><div class="card-desc">${esc(T('Knob.HotkeyDesc'))}</div></div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <button class="btn" style="min-width:170px" onclick="post({cmd:'captureHotkey'})" title="${esc(T('Knob.HotkeyTip'))}">${esc(hkText)}</button>
-        <button class="btn btn-subtle btn-icon" onclick="post({cmd:'resetHotkey'})" title="${esc(T('Knob.HotkeyResetTip'))}">${svg('reset', 16)}</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-row expander-head" onclick="expandCycle=!expandCycle;render()">
-        <div><div class="card-title">${esc(T('Knob.CycleFunctions'))}</div><div class="card-desc">${esc(S.knobCycleSummary)}</div></div>
-        ${svg('chevron', 16)}
-      </div>
-      ${expandCycle ? `<div class="expander-body" style="display:flex;gap:24px;flex-wrap:wrap">
-        ${['Mix','Volume','Game','Chat'].map(t => `<label class="chk-row"><input type="checkbox" ${S.knobCycle.includes(t)?'checked':''} onchange="toggleCycleTarget('${t}',this.checked)"> ${esc(T('Target.'+t))}</label>`).join('')}
-      </div>` : ''}
-    </div>
-
+    ${optRow(T('Knob.DoublePress'), T('Knob.DoublePressDesc'), opt('doublePress', k.doublePress), 'cycle')}
+    ${optRow(T('Knob.CtrlPress'), T('Knob.CtrlPressDesc'), opt('ctrlPress', k.ctrlPress), 'up')}
+    ${optRow(T('Knob.Hotkey'), T('Knob.HotkeyDesc'), `<button class="btn btn-key" title="${esc(T('Knob.HotkeyTip'))}" onclick="send({cmd:'captureHotkey'})">${esc(k.hotkeyText)}</button><button class="btn btn-icon" title="${esc(T('Knob.HotkeyResetTip'))}" onclick="send({cmd:'resetHotkey'})">${ic('reset',14)}</button>`, 'knob')}
+    ${card(`<div class="card-row expander-head" onclick="V.exCycle=!V.exCycle;render(true)"><div class="card-left">${ic('mixer',18)}<div><div class="card-title">${esc(T('Knob.CycleFunctions'))}</div><div class="card-desc">${esc(k.cycleSummary)}</div></div></div>${ic(V.exCycle?'up':'down',12)}</div>
+      ${V.exCycle ? `<div class="expander-body" style="display:flex;gap:22px">${cycleBox}</div>` : ''}`)}
     <div class="section-header">${esc(T('Knob.BehaviorHeader'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.StartFunc'))}</div><div class="card-desc">${esc(T('Knob.StartFuncDesc'))}</div></div>
-      <select class="fluent-select" style="min-width:190px" onchange="post({cmd:'setKnobStartFunction',func:this.value})">
-        <option value="Volume" ${S.knobStartFunction==='Volume'?'selected':''}>${esc(T('Target.Volume'))}</option>
-        <option value="Mix" ${S.knobStartFunction==='Mix'?'selected':''}>${esc(T('Target.Mix'))}</option>
-        <option value="Game" ${S.knobStartFunction==='Game'?'selected':''}>${esc(T('Target.Game'))}</option>
-        <option value="Chat" ${S.knobStartFunction==='Chat'?'selected':''}>${esc(T('Target.Chat'))}</option>
-        <option value="Last" ${S.knobStartFunction==='Last'?'selected':''}>${esc(T('Knob.StartLast'))}</option>
-      </select>
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.MixPressMutes'))}</div><div class="card-desc">${esc(T('Knob.MixPressMutesDesc'))}</div></div>
-      ${toggleSwitch(S.knobMixPressMutes, "sendKnobOpts({mix_press_mutes:this.checked})")}
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.Enabled'))}</div><div class="card-desc">${esc(T('Knob.EnabledDesc'))}</div></div>
-      ${toggleSwitch(S.knobEnabled, "sendKnobOpts({enabled:this.checked})")}
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.CtrlAlt'))}</div><div class="card-desc">${esc(T('Knob.CtrlAltDesc'))}</div></div>
-      ${toggleSwitch(S.knobCtrlAlt, "sendKnobOpts({ctrl_alt:this.checked})")}
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.Step'))}</div><div class="card-desc">${esc(T('Knob.StepDesc'))}</div></div>
-      <div class="slider-wrap" style="width:230px">
-        <input class="fluent-range" type="range" min="1" max="10" step="1" value="${S.knobStepPercent}" style="--pct:${Math.round((S.knobStepPercent - 1) * 100 / 9)}%"
-          oninput="setRangePct(this);this.nextElementSibling.textContent=this.value+'%';post({cmd:'setKnobStep',percent:Number(this.value)})">
-        <span style="width:42px;text-align:right">${S.knobStepPercent}%</span>
-      </div>
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Knob.Invert'))}</div><div class="card-desc">${esc(T('Knob.InvertDesc'))}</div></div>
-      ${toggleSwitch(S.knobInvert, "sendKnobOpts({invert:this.checked})")}
-    </div>
-    <div class="card">
-      <div class="card-row expander-head" onclick="expandKeys=!expandKeys;render()">
-        <div><div class="card-title">${esc(T('Knob.DedicatedKeys'))}</div><div class="card-desc">${esc(T('Knob.DedicatedKeysDesc'))}</div></div>
-        ${svg('chevron', 16)}
-      </div>
-      ${expandKeys ? `<div class="expander-body" style="display:grid;grid-template-columns:200px auto;gap:8px 16px;align-items:center">
-        <span>${esc(T('Knob.MoveGame'))}</span><button class="btn" style="min-width:150px" onclick="post({cmd:'captureKey',which:'Game'})">${esc(gText)}</button>
-        <span>${esc(T('Knob.MoveChat'))}</span><button class="btn" style="min-width:150px" onclick="post({cmd:'captureKey',which:'Chat'})">${esc(cText)}</button>
-        <span>${esc(T('Knob.MixCenter'))}</span><button class="btn" style="min-width:150px" onclick="post({cmd:'captureKey',which:'Reset'})">${esc(rText)}</button>
-      </div>` : ''}
-    </div>
-
+    ${optRow(T('Knob.StartFunc'), T('Knob.StartFuncDesc'), `<select class="fluent-select" onchange="send({cmd:'setKnobStart',value:this.value});this.blur()">${[['Volume', T('Target.Volume')], ['Mix', T('Target.Mix')], ['Game', T('Target.Game')], ['Chat', T('Target.Chat')], ['Last', T('Knob.StartLast')]].map(([v, l]) => `<option value="${v}" ${k.startFunction===v?'selected':''}>${esc(l)}</option>`).join('')}</select>`)}
+    ${optRow(T('Knob.MixPressMutes'), T('Knob.MixPressMutesDesc'), opt('mixPressMutes', k.mixPressMutes))}
+    ${optRow(T('Knob.Enabled'), T('Knob.EnabledDesc'), opt('enabled', k.enabled))}
+    ${optRow(T('Knob.CtrlAlt'), T('Knob.CtrlAltDesc'), opt('ctrlAlt', k.ctrlAlt))}
+    ${optRow(T('Knob.Step'), T('Knob.StepDesc'), `<div class="slider-wrap" style="width:220px">${range('step', k.step, 1, 25, 'setKnobStep')}<span class="pct" id="step-lbl">${k.step}%</span></div>`)}
+    ${optRow(T('Knob.Invert'), T('Knob.InvertDesc'), opt('invert', k.invert))}
+    ${card(`<div class="card-row expander-head" onclick="V.exKeys=!V.exKeys;render(true)"><div class="card-left">${ic('knob',18)}<div><div class="card-title">${esc(T('Knob.DedicatedKeys'))}</div><div class="card-desc">${esc(T('Knob.DedicatedKeysDesc'))}</div></div></div>${ic(V.exKeys?'up':'down',12)}</div>
+      ${V.exKeys ? `<div class="expander-body" style="display:flex;flex-direction:column;gap:8px">${keyBtn('Game', T('Knob.MoveGame'))}${keyBtn('Chat', T('Knob.MoveChat'))}${keyBtn('Reset', T('Knob.MixCenter'))}</div>` : ''}`)}
     <div class="section-header">${esc(T('Knob.TestHeader'))}</div>
-    <div class="card">
-      <div style="font-size:14px">${esc(S.lastKeySeen || T('Knob.TestDefault'))}</div>
-      <div class="card-desc" style="margin-top:4px">${esc(S.keyboardStatus)}</div>
-    </div>
+    ${card(`<div class="mono" id="lastKey">${esc(k.lastKey || T('Knob.TestDefault'))}</div><div class="card-desc" style="margin-top:8px">${esc(k.keyboardStatus)}</div>`)}
   </div>`;
 }
-
-function sendAudioOpts(patch) {
-  post({
-    cmd: 'setAudioOptions',
-    set_defaults: S.setWindowsDefaults,
-    route_apps: S.routeAppsToDevices,
-    game_direct: S.gameDirect,
-    ...patch
-  });
+function toggleCycle(v, on) {
+  let list = S.knob.cycle.slice();
+  if (on && !list.includes(v)) list.push(v);
+  if (!on) list = list.filter(x => x !== v);
+  const order = ['Mix', 'Volume', 'Game', 'Chat'];
+  list.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  send({cmd: 'setKnobCycle', value: list});
 }
 
-function renderAudio() {
-  const vm = S.engineMode === 'VirtualDevices';
-  let drvDesc, drvBtn, drvPrimary = true;
-  if (S.virtualCables === 0) {
-    drvDesc = T('Audio.Driver0Desc'); drvBtn = T('Audio.DriverBtn.Install');
-  } else if (S.virtualCables === 1) {
-    drvDesc = T('Audio.Driver1Desc', shortDev(S.chatDeviceName)); drvBtn = T('Audio.DriverBtn.Upgrade');
-  } else {
-    drvDesc = T('Audio.Driver2Desc', S.gameDeviceName, S.chatDeviceName); drvBtn = T('Audio.DriverBtn.Reconfigure'); drvPrimary = false;
-  }
+function pageAudio() {
+  const a = S.audio;
+  const info = a.setupInfo ? `<div class="infobar banner-${a.setupInfo.severity}"><span class="banner-icon-${a.setupInfo.severity}">${ic(a.setupInfo.severity==='success'?'success':a.setupInfo.severity==='error'?'error':'warning',16)}</span><div style="flex:1"><div class="card-title">${esc(a.setupInfo.title)}</div><div class="card-desc">${esc(a.setupInfo.message)}</div></div><button class="btn btn-icon btn-subtle" onclick="send({cmd:'dismissSetupInfo'})">✕</button></div>` : '';
   return `<div class="page">
-    <h1 class="page-title">${esc(T('Audio.Title'))}</h1>
-    <p class="page-sub" style="margin-bottom:20px">${esc(T('Audio.Subtitle'))}</p>
-    ${renderBanner(true)}
-
-    <div class="section-header" style="margin-top:8px">${esc(T('Audio.OutputSection'))}</div>
-    <div class="card card-row">
-      <div class="card-left">
-        ${svg('headphones', 20)}
-        <div><div class="card-title">${esc(T('Audio.RealOutput'))}</div><div class="card-desc">${esc(T('Audio.RealOutputDesc'))}</div></div>
-      </div>
-      <select class="fluent-select" style="min-width:280px;max-width:380px" onchange="post({cmd:'setOutputDevice',id:this.value||null})">
-        ${(S.outputChoices || []).map(c => `<option value="${esc(c.id || '')}" ${(S.selectedOutputId||'')===(c.id||'')?'selected':''}>${esc(c.label)}</option>`).join('')}
-      </select>
-    </div>
-
+    <div class="page-header"><div><h1 class="page-title">${esc(T('Audio.Title'))}</h1><p class="page-sub">${esc(T('Audio.Subtitle'))}</p></div></div>
+    ${banner()}
+    <div class="section-header">${esc(T('Audio.OutputSection'))}</div>
+    ${optRow(T('Audio.RealOutput'), T('Audio.RealOutputDesc'), `<select class="fluent-select" style="max-width:340px" onchange="send({cmd:'setOutput',value:this.value});this.blur()">${a.outputs.map(o => `<option value="${esc(o.id)}" ${o.id===a.outputSel?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`, 'phones')}
     <div class="section-header">${esc(T('Audio.VirtualSection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Audio.UseVirtual'))}</div><div class="card-desc">${esc(T('Audio.UseVirtualDesc'))}</div></div>
-      ${toggleSwitch(vm, "post({cmd:'setEngineMode',mode:this.checked?'VirtualDevices':'PerApp'})")}
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Audio.DriverTitle'))}</div><div class="card-desc">${esc(drvDesc)}</div></div>
-      <button class="btn ${drvPrimary?'btn-primary':''}" ${S.setupBusy?'disabled':''} onclick="post({cmd:'driverAction'})">${S.virtualCables < 2 ? svg('download', 15) : svg('wrench', 15)}${esc(drvBtn)}</button>
-    </div>
-    ${S.setupBanner ? `<div class="banner banner-${S.setupBanner.severity}" style="margin-top:4px">
-      <div><div class="card-title">${esc(S.setupBanner.title)}</div><div class="card-desc">${esc(S.setupBanner.message)}</div></div>
-      <button class="btn btn-subtle" onclick="post({cmd:'dismissSetupBanner'})">✕</button>
-    </div>` : ''}
-    ${S.virtualCables >= 2 ? `<div class="card card-row">
-      <div><div class="card-title">${esc(T('Audio.GameDirect'))}</div><div class="card-desc">${esc(T('Audio.GameDirectDesc'))}</div></div>
-      <label class="switch"><input type="checkbox" ${S.gameDirect?'checked':''} ${vm?'':'disabled'} onchange="sendAudioOpts({game_direct:this.checked})"><span class="switch-track"></span></label>
-    </div>` : ''}
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Audio.SetDefaults'))}</div><div class="card-desc">${esc(S.defaultsText)}</div></div>
-      <label class="switch"><input type="checkbox" ${S.setWindowsDefaults?'checked':''} ${vm?'':'disabled'} onchange="sendAudioOpts({set_defaults:this.checked})"><span class="switch-track"></span></label>
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Audio.RouteApps'))}</div><div class="card-desc">${esc(T('Audio.RouteAppsDesc'))}</div></div>
-      <label class="switch"><input type="checkbox" ${S.routeAppsToDevices?'checked':''} ${vm?'':'disabled'} onchange="sendAudioOpts({route_apps:this.checked})"><span class="switch-track"></span></label>
-    </div>
-
+    ${optRow(T('Audio.UseVirtual'), T('Audio.UseVirtualDesc'), sw(a.useVirtual, 'setUseVirtual'))}
+    ${info}
+    ${optRow(T('Audio.DriverTitle'), a.driverText, `<button class="btn ${a.driverPrimary?'btn-primary':''}" ${S.status.setupBusy?'disabled':''} onclick="send({cmd:'driverButton'})">${esc(a.driverButton)}</button>`, 'download')}
+    ${a.gameDirectVisible ? optRow(T('Audio.GameDirect'), T('Audio.GameDirectDesc'), sw(a.gameDirect, 'setAudioOption', {name:'gameDirect'}, !a.useVirtual)) : ''}
+    ${optRow(T('Audio.SetDefaults'), a.defaultsText, sw(a.setDefaults, 'setAudioOption', {name:'setDefaults'}, !a.useVirtual))}
+    ${optRow(T('Audio.RouteApps'), T('Audio.RouteAppsDesc'), sw(a.routeApps, 'setAudioOption', {name:'routeApps'}, !a.useVirtual))}
     <div class="section-header">${esc(T('Audio.QualitySection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Audio.Latency'))}</div><div class="card-desc">${esc(T('Audio.LatencyDesc'))}</div></div>
-      <div class="segment">
-        <button class="seg-btn ${S.latency==='Minima'?'active':''}" onclick="post({cmd:'setLatency',latency:'Minima'})">${esc(T('Audio.Latency.Min'))}</button>
-        <button class="seg-btn ${S.latency==='Bilanciata'?'active':''}" onclick="post({cmd:'setLatency',latency:'Bilanciata'})">${esc(T('Audio.Latency.Bal'))}</button>
-        <button class="seg-btn ${S.latency==='Sicura'?'active':''}" onclick="post({cmd:'setLatency',latency:'Sicura'})">${esc(T('Audio.Latency.Safe'))}</button>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-row expander-head" onclick="expandSignal=!expandSignal;render()">
-        <div><div class="card-title">${esc(T('Audio.SignalPath'))}</div><div class="card-desc">${esc(S.qualitySummary)}</div></div>
-        ${svg('chevron', 16)}
-      </div>
-      ${expandSignal ? `<div class="expander-body" style="font-size:13px">
-        <p style="margin:0 0 8px 0">${esc(T('Audio.Signal.Bullet1'))}</p>
-        <p style="margin:0 0 8px 0">${esc(T('Audio.Signal.Bullet2'))}</p>
-        <p style="margin:0 0 8px 0">${esc(T('Audio.Signal.Bullet3'))}</p>
-        <p style="margin:0 0 8px 0">${esc(T('Audio.Signal.Bullet4'))}</p>
-        <div class="card-desc mono" style="margin-top:8px">${esc(S.technicalDetails)}</div>
-      </div>` : ''}
-    </div>
-
+    ${optRow(T('Audio.Latency'), T('Audio.LatencyDesc'), seg([['Minima', T('Audio.Latency.Min')], ['Bilanciata', T('Audio.Latency.Bal')], ['Sicura', T('Audio.Latency.Safe')]], a.latency, 'setLatency'))}
+    ${card(`<div class="card-row expander-head" onclick="V.exSignal=!V.exSignal;render(true)"><div class="card-left">${ic('info',18)}<div><div class="card-title">${esc(T('Audio.SignalPath'))}</div><div class="card-desc" id="quality">${esc(a.quality)}</div></div></div>${ic(V.exSignal?'up':'down',12)}</div>
+      ${V.exSignal ? `<div class="expander-body"><div class="card-desc">${[1,2,3,4].map(i => esc(T('Audio.Signal.Bullet' + i))).join('<br>')}</div><div class="tech" id="tech">${esc(a.technical)}</div></div>` : ''}`)}
     <div class="section-header">${esc(T('Audio.WindowsSection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Audio.Ducking'))}</div><div class="card-desc">${esc(T('Audio.DuckingDesc'))}</div></div>
-      ${toggleSwitch(S.noDucking, "post({cmd:'setDuckingDisabled',disabled:this.checked})")}
-    </div>
-
+    ${optRow(T('Audio.Ducking'), T('Audio.DuckingDesc'), sw(a.ducking, 'setDucking'))}
     <div class="section-header">${esc(T('Audio.TroubleshootSection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('Audio.RepairCard'))}</div><div class="card-desc">${esc(T('Audio.RepairCardDesc'))}</div></div>
-      <button class="btn" ${S.setupBusy?'disabled':''} onclick="post({cmd:'repairAudio'})">${svg('wrench', 15)}${esc(T('Banner.Repair'))}</button>
-    </div>
+    ${optRow(T('Audio.RepairCard'), T('Audio.RepairCardDesc'), `<button class="btn" ${S.status.setupBusy?'disabled':''} onclick="send({cmd:'repair'})">${ic('repair',14)} ${esc(T('Banner.Repair'))}</button>`, 'repair')}
   </div>`;
 }
 
-function renderGeneral() {
+function pageGeneral() {
+  const g = S.general;
+  const opt = (name, on) => sw(on, 'setGeneralOption', {name});
   return `<div class="page">
-    <h1 class="page-title" style="margin-bottom:20px">${esc(T('General.Title'))}</h1>
-
-    <div class="section-header" style="margin-top:0">${esc(T('General.StartupSection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.Autostart'))}</div><div class="card-desc">${esc(T('General.AutostartDesc'))}</div></div>
-      ${toggleSwitch(S.autostart, "post({cmd:'setAutostart',enabled:this.checked})")}
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.StartHidden'))}</div><div class="card-desc">${esc(T('General.StartHiddenDesc'))}</div></div>
-      ${toggleSwitch(S.startMinimized, "post({cmd:'setStartMinimized',enabled:this.checked})")}
-    </div>
-
+    <div class="page-header"><div><h1 class="page-title">${esc(T('General.Title'))}</h1></div></div>
+    <div class="section-header">${esc(T('General.StartupSection'))}</div>
+    ${optRow(T('General.Autostart'), T('General.AutostartDesc'), opt('autostart', g.autostart))}
+    ${optRow(T('General.StartHidden'), T('General.StartHiddenDesc'), opt('startHidden', g.startHidden))}
     <div class="section-header">${esc(T('General.BehaviorSection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.Osd'))}</div><div class="card-desc">${esc(T('General.OsdDesc'))}</div></div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <button class="btn btn-subtle" onclick="post({cmd:'testOsd'})">${esc(T('General.OsdTest'))}</button>
-        ${toggleSwitch(S.showOsd, "post({cmd:'setShowOsd',enabled:this.checked})")}
-      </div>
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.RestoreVol'))}</div><div class="card-desc">${esc(T('General.RestoreVolDesc'))}</div></div>
-      ${toggleSwitch(S.restoreVolumesOnExit, "post({cmd:'setRestoreVolumes',enabled:this.checked})")}
-    </div>
-
+    ${optRow(T('General.Osd'), T('General.OsdDesc'), `<button class="btn" onclick="send({cmd:'testOsd'})">${esc(T('General.OsdTest'))}</button>${opt('osd', g.osd)}`)}
+    ${optRow(T('General.RestoreVol'), T('General.RestoreVolDesc'), opt('restoreVolumes', g.restoreVolumes))}
     <div class="section-header">${esc(T('General.AppearanceSection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.Theme'))}</div><div class="card-desc">${esc(T('General.ThemeDesc'))}</div></div>
-      <div class="segment">
-        <button class="seg-btn ${S.theme==='System'?'active':''}" onclick="post({cmd:'setTheme',theme:'System'})">${esc(T('General.Theme.System'))}</button>
-        <button class="seg-btn ${S.theme==='Light'?'active':''}" onclick="post({cmd:'setTheme',theme:'Light'})">${esc(T('General.Theme.Light'))}</button>
-        <button class="seg-btn ${S.theme==='Dark'?'active':''}" onclick="post({cmd:'setTheme',theme:'Dark'})">${esc(T('General.Theme.Dark'))}</button>
-      </div>
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.Language'))}</div><div class="card-desc">${esc(T('General.LanguageDesc'))}</div></div>
-      <div class="segment">
-        <button class="seg-btn ${S.languagePref==='Auto'?'active':''}" onclick="post({cmd:'setLanguage',lang:'Auto'})">${esc(T('General.Language.Auto'))}</button>
-        <button class="seg-btn ${S.languagePref==='English'?'active':''}" onclick="post({cmd:'setLanguage',lang:'English'})">${esc(T('General.Language.En'))}</button>
-        <button class="seg-btn ${S.languagePref==='Italian'?'active':''}" onclick="post({cmd:'setLanguage',lang:'Italian'})">${esc(T('General.Language.It'))}</button>
-      </div>
-    </div>
-
+    ${optRow(T('General.Theme'), T('General.ThemeDesc'), seg([['System', T('General.Theme.System')], ['Light', T('General.Theme.Light')], ['Dark', T('General.Theme.Dark')]], g.theme, 'setTheme'))}
+    ${optRow(T('General.Language'), T('General.LanguageDesc'), seg([['Auto', T('General.Language.Auto')], ['English', T('General.Language.En')], ['Italian', T('General.Language.It')]], g.language, 'setLanguage'))}
     <div class="section-header">${esc(T('General.UpdatesSection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(S.updateTitle)}</div><div class="card-desc">${esc(S.updateText)}</div></div>
-      <button class="btn" ${S.updateBusy?'disabled':''} onclick="post({cmd:'updateAction'})">${esc(S.updateButtonText)}</button>
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.UpdateModes'))}</div><div class="card-desc">${esc(T('General.UpdateModesDesc'))}</div></div>
-      <div class="segment">
-        <button class="seg-btn ${S.updateMode==='Auto'?'active':''}" onclick="post({cmd:'setUpdateMode',mode:'Auto'})">${esc(T('General.UpdateMode.Auto'))}</button>
-        <button class="seg-btn ${S.updateMode==='Notify'?'active':''}" onclick="post({cmd:'setUpdateMode',mode:'Notify'})">${esc(T('General.UpdateMode.Notify'))}</button>
-        <button class="seg-btn ${S.updateMode==='Off'?'active':''}" onclick="post({cmd:'setUpdateMode',mode:'Off'})">${esc(T('General.UpdateMode.Off'))}</button>
-      </div>
-    </div>
-
+    ${optRow(g.updateTitle, g.updateText, `<button class="btn btn-primary" ${g.updateBusy?'disabled':''} onclick="send({cmd:'updateButton'})">${esc(g.updateButton)}</button>`, 'download')}
+    ${optRow(T('General.UpdateModes'), T('General.UpdateModesDesc'), seg([['Auto', T('General.UpdateMode.Auto')], ['Notify', T('General.UpdateMode.Notify')], ['Off', T('General.UpdateMode.Off')]], g.updateMode, 'setUpdateMode'))}
     <div class="section-header">${esc(T('General.SupportSection'))}</div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.Wizard'))}</div><div class="card-desc">${esc(T('General.WizardDesc'))}</div></div>
-      <button class="btn" onclick="post({cmd:'openWizard'})">${esc(T('General.WizardOpen'))}</button>
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.Diag'))}</div><div class="card-desc">${esc(S.diagText)}</div></div>
-      <button class="btn" ${S.diagBusy?'disabled':''} onclick="post({cmd:'runDiag'})">${esc(T('General.DiagRun'))}</button>
-    </div>
-    <div class="card card-row">
-      <div><div class="card-title">${esc(T('General.Logs'))}</div><div class="card-desc">${esc(S.dataDir)}</div></div>
-      <button class="btn" onclick="post({cmd:'openDataFolder'})">${esc(T('General.OpenFolder'))}</button>
-    </div>
-
+    ${optRow(T('General.Wizard'), T('General.WizardDesc'), `<button class="btn" onclick="send({cmd:'openWizard'})">${esc(T('General.WizardOpen'))}</button>`)}
+    ${optRow(T('General.Diag'), g.diagText, `<button class="btn" ${g.diagRunning?'disabled':''} onclick="send({cmd:'runDiag'})">${esc(g.diagRunning?T('General.DiagRunning'):T('General.DiagRun'))}</button>`, 'test')}
+    ${optRow(T('General.Logs'), g.dataPath, `<button class="btn" onclick="send({cmd:'openFolder'})">${ic('folder',14)} ${esc(T('General.OpenFolder'))}</button>`, 'folder')}
     <div class="section-header">${esc(T('General.AboutSection'))}</div>
-    <div class="card">
-      <div style="display:flex;align-items:center;gap:12px">
-        <img src="${APP_ICON_URI}" width="32" height="32" alt="">
-        <div>
-          <div class="card-title">DualMix ${esc(S.version)}</div>
-          <div class="card-desc">${esc(T('General.AboutTagline'))}</div>
-        </div>
-      </div>
-      <div class="card-desc" style="margin-top:12px">
-        ${esc(T('General.VbCreditPrefix'))}<a class="link" onclick="post({cmd:'openUrl',url:'https://vb-audio.com/Cable/'})">vb-audio.com</a>.
-      </div>
-    </div>
+    ${card(`<div class="card-left"><img src="${ICON_URI}" width="40" height="40" alt=""><div><div class="card-title">${esc(T('General.VersionLine', S.version))}</div><div class="card-desc">${esc(T('General.AboutTagline'))}</div>
+      <div class="card-desc">${esc(T('General.VbCreditPrefix'))}<a class="link" onclick="send({cmd:'openUrl',value:'https://vb-audio.com/Cable/'})">vb-audio.com</a></div></div></div>`)}
   </div>`;
 }
 
-let wizDraft = null;
-
-function renderWizard() {
-  if (!wizDraft) {
-    wizDraft = {
-      outputId: S.selectedOutputId || '',
-      mode: S.engineMode,
-      startWithWindows: S.autostart,
-      disableDucking: true,
-    };
+// ------------------------------------------------------------------------------------------ wizard
+function wizDraft() {
+  if (!V.wiz) {
+    const w = S.wizardData;
+    V.wiz = { output: S.audio.outputSel || '', mode: w.mode === 'PerApp' ? 'PerApp' : 'VirtualDevices', startWithWindows: !!w.startWithWindows, disableDucking: !!w.disableDucking };
   }
-  const step = S.wizardStep || 1;
+  return V.wiz;
+}
+function pageWizard() {
+  const d = wizDraft(), w = S.wizardData, step = V.step;
   let body = '';
   if (step === 1) {
-    body = `
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
-        <img src="${APP_ICON_URI}" width="48" height="48" alt="">
-        <div>
-          <div style="font-size:24px;font-weight:600">${esc(T('Wizard.S1.Title'))}</div>
-          <div class="card-desc" style="font-size:13px;margin-top:4px">${esc(T('Wizard.S1.Subtitle'))}</div>
-        </div>
+    body = `<h1 class="page-title">${esc(T('Wizard.S1.Title'))}</h1><p class="page-sub">${esc(T('Wizard.S1.Subtitle'))}</p>
+      <div class="wiz-cards">
+        ${card(`<div class="card-left"><div class="badge badge-game">${ic('game',18)}</div><div><div class="card-title">${esc(T('Wizard.S1.GameTitle'))}</div><div class="card-desc">${esc(T('Wizard.S1.GameDesc'))}</div></div></div>`)}
+        ${card(`<div class="card-left"><div class="badge badge-chat">${ic('chat',18)}</div><div><div class="card-title">${esc(T('Wizard.S1.ChatTitle'))}</div><div class="card-desc">${esc(T('Wizard.S1.ChatDesc'))}</div></div></div>`)}
       </div>
-      <div class="grid-2" style="margin-bottom:16px">
-        <div class="card">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-            <div class="badge badge-sm badge-game">${svg('games', 16)}</div>
-            <span style="font-size:15px;font-weight:600">${esc(T('Wizard.S1.GameTitle'))}</span>
-          </div>
-          <div class="card-desc" style="font-size:13px">${esc(T('Wizard.S1.GameDesc'))}</div>
-        </div>
-        <div class="card">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-            <div class="badge badge-sm badge-chat">${svg('chat', 16)}</div>
-            <span style="font-size:15px;font-weight:600">${esc(T('Wizard.S1.ChatTitle'))}</span>
-          </div>
-          <div class="card-desc" style="font-size:13px">${esc(T('Wizard.S1.ChatDesc'))}</div>
-        </div>
-      </div>
-      <div class="card card-row">
-        <div>
-          <div class="card-title" style="font-weight:600">${esc(T('Wizard.S1.LangLabel'))}</div>
-          <div class="card-desc">${esc(T('Wizard.S1.LangHint'))}</div>
-        </div>
-        <div class="segment">
-          <button class="seg-btn ${S.languagePref==='Auto'?'active':''}" onclick="post({cmd:'wizardLang',lang:'Auto'})">${esc(T('General.Language.Auto'))}</button>
-          <button class="seg-btn ${S.languagePref==='English'?'active':''}" onclick="post({cmd:'wizardLang',lang:'English'})">English</button>
-          <button class="seg-btn ${S.languagePref==='Italian'?'active':''}" onclick="post({cmd:'wizardLang',lang:'Italian'})">Italiano</button>
-        </div>
-      </div>`;
+      <div class="section-header">${esc(T('Wizard.S1.LangLabel'))}</div>
+      ${seg([['Auto', T('General.Language.Auto')], ['English', 'English'], ['Italian', 'Italiano']], S.general.language, 'wizardLanguage')}
+      <div class="card-desc" style="margin-top:8px">${esc(T('Wizard.S1.LangHint'))}</div>`;
   } else if (step === 2) {
-    body = `
-      <div style="font-size:22px;font-weight:600;margin-bottom:4px">${esc(T('Wizard.S2.Title'))}</div>
-      <div class="card-desc" style="font-size:13px;margin-bottom:16px">${esc(T('Wizard.S2.Subtitle'))}</div>
-      <div class="card" style="margin-bottom:12px">
-        <div class="card-title" style="font-weight:600;margin-bottom:8px">${esc(T('Wizard.S2.OutputLabel'))}</div>
-        <select class="fluent-select" style="width:100%;margin-bottom:6px" onchange="wizDraft.outputId=this.value">
-          ${(S.outputChoices || []).map(c => `<option value="${esc(c.id || '')}" ${wizDraft.outputId===(c.id||'')?'selected':''}>${esc(c.label)}</option>`).join('')}
-        </select>
-        <div class="card-desc">${esc(T('Wizard.S2.OutputHint'))}</div>
-      </div>
-      <div class="section-header" style="margin-top:8px">${esc(T('Wizard.S2.ModeLabel'))}</div>
-      <div class="card" style="margin-bottom:8px">
-        <label class="radio-card">
-          <input type="radio" name="wizmode" ${wizDraft.mode==='PerApp'?'checked':''} onchange="wizDraft.mode='PerApp'">
-          <div>
-            <div class="card-title" style="font-weight:600">${esc(T('Wizard.S2.ModePerAppTitle'))}</div>
-            <div class="card-desc">${esc(T('Wizard.S2.ModePerAppDesc'))}</div>
-          </div>
-        </label>
-      </div>
-      <div class="card">
-        <label class="radio-card">
-          <input type="radio" name="wizmode" ${wizDraft.mode==='VirtualDevices'?'checked':''} onchange="wizDraft.mode='VirtualDevices'">
-          <div>
-            <div class="card-title" style="font-weight:600">${esc(T('Wizard.S2.ModeVirtualTitle'))}</div>
-            <div class="card-desc">${esc(T('Wizard.S2.ModeVirtualDesc'))}</div>
-            <div class="card-desc" style="margin-top:6px;font-weight:600;color:var(--accent)">${esc(S.vbCablesPresent ? T('Wizard.S2.VbReady') : T('Wizard.S2.VbInstallNeeded'))}</div>
-          </div>
-        </label>
-      </div>`;
+    const radio = (v, title, desc) => `<label class="radio-card card"><input type="radio" name="mode" ${d.mode===v?'checked':''} onchange="V.wiz.mode='${v}'"><div><div class="card-title">${esc(title)}</div><div class="card-desc">${esc(desc)}</div></div></label>`;
+    body = `<h1 class="page-title">${esc(T('Wizard.S2.Title'))}</h1><p class="page-sub">${esc(T('Wizard.S2.Subtitle'))}</p>
+      <div class="section-header">${esc(T('Wizard.S2.OutputLabel'))}</div>
+      <select class="fluent-select" style="width:100%" onchange="V.wiz.output=this.value;this.blur()">${S.audio.outputs.map(o => `<option value="${esc(o.id)}" ${o.id===d.output?'selected':''}>${esc(o.label)}</option>`).join('')}</select>
+      <div class="card-desc" style="margin-top:6px">${esc(T('Wizard.S2.OutputHint'))}</div>
+      <div class="section-header">${esc(T('Wizard.S2.ModeLabel'))}</div>
+      ${radio('PerApp', T('Wizard.S2.ModePerAppTitle'), T('Wizard.S2.ModePerAppDesc'))}
+      ${radio('VirtualDevices', T('Wizard.S2.ModeVirtualTitle'), T('Wizard.S2.ModeVirtualDesc'))}
+      <div class="card-desc" style="margin-top:8px">${esc(w.vbReady ? T('Wizard.S2.VbReady') : T('Wizard.S2.VbInstallNeeded'))}</div>`;
   } else {
-    body = `
-      <div style="font-size:22px;font-weight:600;margin-bottom:4px">${esc(T('Wizard.S3.Title'))}</div>
-      <div class="card-desc" style="font-size:13px;margin-bottom:16px">${esc(T('Wizard.S3.Subtitle'))}</div>
-      <div class="card" style="margin-bottom:12px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          ${svg('keyboard', 18)}
-          <span class="card-title" style="font-weight:600">${esc(T('Wizard.S3.KnobBoxTitle'))}</span>
-        </div>
-        <div class="card-desc" style="font-size:13px;margin-bottom:4px">${esc(T('Wizard.S3.KnobRule1'))}</div>
-        <div class="card-desc" style="font-size:13px;margin-bottom:4px">${esc(T('Wizard.S3.KnobRule2'))}</div>
-        <div class="card-desc" style="font-size:13px">${esc(T('Wizard.S3.KnobRule3'))}</div>
+    body = `<h1 class="page-title">${esc(T('Wizard.S3.Title'))}</h1><p class="page-sub">${esc(T('Wizard.S3.Subtitle'))}</p>
+      ${card(`<div class="card-title">${esc(T('Wizard.S3.KnobBoxTitle'))}</div><div class="card-desc" style="margin-top:6px;line-height:1.7">${esc(T('Wizard.S3.KnobRule1'))}<br>${esc(T('Wizard.S3.KnobRule2'))}<br>${esc(T('Wizard.S3.KnobRule3'))}</div>`)}
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
+        <label class="chk-row"><input type="checkbox" ${d.startWithWindows?'checked':''} onchange="V.wiz.startWithWindows=this.checked"> ${esc(T('Wizard.S3.StartWithWindows'))}</label>
+        <label class="chk-row"><input type="checkbox" ${d.disableDucking?'checked':''} onchange="V.wiz.disableDucking=this.checked"> ${esc(T('Wizard.S3.DisableDucking'))}</label>
       </div>
-      <div class="card" style="margin-bottom:10px">
-        <label class="chk-row" style="margin-bottom:10px;display:flex">
-          <input type="checkbox" ${wizDraft.startWithWindows?'checked':''} onchange="wizDraft.startWithWindows=this.checked">
-          <span>${esc(T('Wizard.S3.StartWithWindows'))}</span>
-        </label>
-        <label class="chk-row" style="display:flex">
-          <input type="checkbox" ${wizDraft.disableDucking?'checked':''} onchange="wizDraft.disableDucking=this.checked">
-          <span>${esc(T('Wizard.S3.DisableDucking'))}</span>
-        </label>
-      </div>
-      <div class="card-desc">${esc(T('Wizard.S3.DoneNote'))}</div>`;
+      <div class="card-desc" style="margin-top:14px">${esc(T('Wizard.S3.DoneNote'))}</div>`;
   }
-  const backLbl = step === 1 ? T('Wizard.Skip') : T('Wizard.Back');
-  const nextLbl = step === 3 ? T('Wizard.Finish') : T('Wizard.Next');
-  const finish = (skip) => post({
-    cmd: 'wizardFinish',
-    skip_driver: skip,
-    output_id: wizDraft.outputId || null,
-    mode: wizDraft.mode,
-    start_with_windows: wizDraft.startWithWindows,
-    disable_ducking: wizDraft.disableDucking,
-  });
-  window._wizBack = () => step === 1 ? finish(true) : post({ cmd: 'setWizardStep', step: step - 1 });
-  window._wizNext = () => step < 3 ? post({ cmd: 'setWizardStep', step: step + 1 }) : finish(false);
+  return `<div class="wiz-shell" style="height:100vh"><div class="wiz-body"><div class="card-left" style="margin-bottom:10px"><img src="${ICON_URI}" width="28" height="28" alt=""><span class="wiz-step">${esc(T('Wizard.StepIndicator', step))}</span></div>${body}</div>
+    <div class="wiz-footer"><button class="btn" onclick="wizBack()">${esc(step === 1 ? T('Wizard.Skip') : T('Wizard.Back'))}</button>
+      <button class="btn btn-primary" onclick="wizNext()">${esc(step === 3 ? T('Wizard.Finish') : T('Wizard.Next'))}</button></div></div>`;
+}
+function wizBack() { if (V.step === 1) { send(Object.assign({cmd: 'wizardSkip'}, wizDraft())); } else { V.step--; render(true); } }
+function wizNext() { if (V.step < 3) { V.step++; render(true); } else { send(Object.assign({cmd: 'wizardFinish'}, wizDraft())); } }
 
-  document.getElementById('root').innerHTML = `<div class="root-col">
-    ${renderTitleBar(T('Wizard.WindowTitle'), false)}
-    <div class="wiz-shell">
-      <div class="wiz-body">${body}</div>
-      <div class="wiz-footer">
-        <span class="card-desc" style="font-size:13px">${esc(T('Wizard.StepIndicator', step))}</span>
-        <div style="display:flex;gap:8px">
-          <button class="btn" style="min-width:96px" onclick="_wizBack()">${esc(backLbl)}</button>
-          <button class="btn btn-primary" style="min-width:128px" onclick="_wizNext()">${esc(nextLbl)}</button>
-        </div>
-      </div>
-    </div>
-  </div>`;
+// ------------------------------------------------------------------------------------------ shell
+const PAGES = [['mixer', 'Nav.Mixer', 'mixer'], ['apps', 'Nav.Apps', 'apps'], ['knob', 'Nav.Knob', 'knob'], ['audio', 'Nav.Audio', 'audio']];
+function nav(p) { V.page = p; const sc = document.querySelector('.content-scroll'); render(true); const sc2 = document.querySelector('.content-scroll'); if (sc2) sc2.scrollTop = 0; if (p === 'apps') send({cmd: 'rescan'}); }
+function shell(content) {
+  const item = ([id, key, icon]) => `<button class="nav-item ${V.page===id?'active':''}" title="${esc(T(key + '.Tip'))}" onclick="nav('${id}')">${ic(icon,16)}<span class="nav-label">${esc(T(key))}</span></button>`;
+  return `<div class="app-shell"><nav class="nav ${V.nav?'collapsed':''}"><div class="nav-top">
+      <button class="nav-ham" onclick="V.nav=!V.nav;render(true)">${ic('ham',16)}</button>
+      <div class="nav-group">${PAGES.map(item).join('')}</div></div>
+      <div class="nav-group"><div class="nav-sep"></div>${item(['general', 'Nav.General', 'general'])}</div></nav>
+    <main class="content-frame"><div class="content-scroll">${content}</div></main></div>`;
 }
 
-function render() {
+function render(force) {
   if (!S) return;
-  document.documentElement.setAttribute('data-theme', S.dark ? 'dark' : 'light');
-  if (S.mode === 'wizard') {
-    renderWizard();
-    return;
+  if (interacting && !force) { pending = true; return; }
+  pending = false;
+  document.documentElement.dataset.theme = S.dark ? 'dark' : 'light';
+  document.documentElement.lang = S.lang;
+  const sc = document.querySelector('.content-scroll') || document.querySelector('.wiz-body');
+  const top = sc ? sc.scrollTop : 0;
+  const ae = document.activeElement, focusId = ae && ae.id, selStart = ae && ae.selectionStart;
+  let html;
+  if (KIND === 'wizard') html = pageWizard();
+  else {
+    const p = { mixer: pageMixer, apps: pageApps, knob: pageKnob, audio: pageAudio, general: pageGeneral }[V.page] || pageMixer;
+    html = shell(p());
   }
-  const tabs = [
-    [0, 'Nav.Mixer', 'Nav.Mixer.Tip', 'options'],
-    [1, 'Nav.Apps', 'Nav.Apps.Tip', 'apps'],
-    [2, 'Nav.Knob', 'Nav.Knob.Tip', 'keyboard'],
-    [3, 'Nav.Audio', 'Nav.Audio.Tip', 'speaker'],
-  ];
-  const pages = [renderMixer, renderApps, renderKnob, renderAudio, renderGeneral];
-  const pageHtml = (pages[S.activeTab] || renderMixer)();
-
-  const scrollEl = document.querySelector('.content-scroll');
-  const prevScroll = scrollEl ? scrollEl.scrollTop : 0;
-  const focusId = document.activeElement ? document.activeElement.id : null;
-
-  document.getElementById('root').innerHTML = `<div class="root-col">
-    ${renderTitleBar('DualMix', true)}
-    <div class="app-shell">
-      <aside class="nav ${navCollapsed?'collapsed':''}">
-        <div class="nav-top">
-          <button class="nav-ham" onclick="navCollapsed=!navCollapsed;render()" title="Navigation">${svg('hamburger', 16)}</button>
-          <div class="nav-group">
-            ${tabs.map(([i, k, tip, ic]) => `<button class="nav-item ${S.activeTab===i?'active':''}" title="${esc(T(tip))}" onclick="post({cmd:'setTab',tab:${i}})">${svg(ic,18)}<span class="nav-label">${esc(T(k))}</span></button>`).join('')}
-          </div>
-        </div>
-        <div class="nav-group">
-          <div class="nav-sep"></div>
-          <button class="nav-item ${S.activeTab===4?'active':''}" title="${esc(T('Nav.General.Tip'))}" onclick="post({cmd:'setTab',tab:4})">${svg('settings',18)}<span class="nav-label">${esc(T('Nav.General'))}</span></button>
-        </div>
-      </aside>
-      <div class="content-frame">
-        <main class="content-scroll">${pageHtml}</main>
-      </div>
-    </div>
-  </div>`;
-
-  const newScroll = document.querySelector('.content-scroll');
-  if (newScroll) newScroll.scrollTop = prevScroll;
-  if (focusId) {
-    const el = document.getElementById(focusId);
-    if (el && el.tagName === 'INPUT' && el.type === 'text') {
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    }
-  }
+  document.getElementById('root').innerHTML = html;
+  const sc2 = document.querySelector('.content-scroll') || document.querySelector('.wiz-body');
+  if (sc2) sc2.scrollTop = top;
+  if (focusId) { const el = document.getElementById(focusId); if (el && el.tagName === 'INPUT' && el.type === 'text') { el.focus(); try { el.setSelectionRange(selStart, selStart); } catch (e) {} } }
+  applyMeters();
 }
 
-function updateLive(patch) {
-  if (!S) return;
-  Object.assign(S, patch);
-  const smooth = (c, t) => t > c ? t : c + (t - c) * 0.18;
-  meters.game = smooth(meters.game, Math.sqrt(Math.min(1, S.gamePeak || 0)));
-  meters.chat = smooth(meters.chat, Math.sqrt(Math.min(1, S.chatPeak || 0)));
-  meters.out = smooth(meters.out, Math.sqrt(Math.min(1, S.outputPeak || 0)));
-
-  if (S.mode === 'main' && S.activeTab === 0) {
-    const mg = document.getElementById('mt-game'); if (mg) mg.style.transform = `scaleX(${meters.game})`;
-    const mc = document.getElementById('mt-chat'); if (mc) mc.style.transform = `scaleX(${meters.chat})`;
-    const mo = document.getElementById('mt-out'); if (mo) mo.style.transform = `scaleX(${meters.out})`;
-    const setT = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-    setT('mx-text', S.mixText); setT('mx-gval', S.gameLevelText); setT('mx-cval', S.chatLevelText);
-    setT('mx-chip', S.engineChip); setT('mx-fmt', S.formatText);
-    if (!dragLocks.mix) { const s = document.getElementById('sl-mix'); if (s) s.value = S.mixPercent; }
-    if (!dragLocks.gvol) { const s = document.getElementById('sl-gvol'); if (s) { s.value = S.gameVolumePercent; setRangePct(s); } setT('tx-gvol', S.gameVolumePercent + '%'); }
-    if (!dragLocks.cvol) { const s = document.getElementById('sl-cvol'); if (s) { s.value = S.chatVolumePercent; setRangePct(s); } setT('tx-cvol', S.chatVolumePercent + '%'); }
-    if (!dragLocks.ovol) { const s = document.getElementById('sl-ovol'); if (s) { s.value = S.outputVolumePercent; setRangePct(s); } setT('tx-ovol', S.outputVolumePercent + '%'); }
-  } else if (S.mode === 'main' && S.activeTab === 1 && !Object.keys(dragLocks).length) {
-    for (const a of (S.apps || [])) {
-      const el = document.querySelector(`[data-peak="${CSS.escape(a.key)}"]`);
-      if (el) el.style.transform = `scaleX(${Math.sqrt(Math.min(1, a.peak || 0))})`;
-    }
-  }
+// ------------------------------------------------------------------------------------------ live meters
+const M = { game: 0, chat: 0, out: 0, apps: {} };
+let live = null;
+function smooth(cur, target) { return target > cur ? target : cur + (target - cur) * 0.18; }
+function setMeter(el, v) { if (el) el.style.transform = `scaleX(${Math.max(0, Math.min(1, v))})`; }
+function applyMeters() {
+  setMeter(document.getElementById('meter-game'), M.game);
+  setMeter(document.getElementById('meter-chat'), M.chat);
+  setMeter(document.getElementById('meter-out'), M.out);
+  document.querySelectorAll('[data-app]').forEach(el => setMeter(el, M.apps[el.dataset.app] || 0));
+}
+function onLive(l) {
+  M.game = smooth(M.game, Math.sqrt(Math.min(1, l.gamePeak)));
+  M.chat = smooth(M.chat, Math.sqrt(Math.min(1, l.chatPeak)));
+  M.out = smooth(M.out, Math.sqrt(Math.min(1, l.outPeak)));
+  const seen = {};
+  for (const [k, p] of l.apps) { M.apps[k] = smooth(M.apps[k] || 0, Math.sqrt(Math.min(1, p))); seen[k] = 1; }
+  for (const k in M.apps) if (!seen[k]) M.apps[k] = smooth(M.apps[k], 0);
+  applyMeters();
+  const chip = document.getElementById('chip'); if (chip && chip.textContent !== l.chip) chip.textContent = l.chip;
+  const lk = document.getElementById('lastKey'); if (lk && l.lastKey && lk.textContent !== l.lastKey) lk.textContent = l.lastKey;
 }
 
-window.__dualmixSetMaximized = function(max) {
-  if (isMaximized !== !!max) {
-    isMaximized = !!max;
-    if (S && S.mode === 'main') render();
-  }
-};
-
-window.__dualmixSetState = function(next) {
-  const prevTab = S ? S.activeTab : -1;
-  const prevMode = S ? S.mode : '';
-  S = next;
-  if (S.mode === 'wizard' && prevMode !== 'wizard') wizDraft = null;
-  if (Object.keys(dragLocks).length === 0 || prevTab !== S.activeTab || prevMode !== S.mode) {
-    render();
-  }
-};
-window.__dualmixLive = updateLive;
-window.__dualmixScrollEnd = function() {
-  const sc = document.querySelector('.content-scroll');
-  if (!sc || sc.scrollHeight <= sc.clientHeight + 2) return false;
-  sc.scrollTop = sc.scrollHeight;
-  return true;
-};
-
-document.addEventListener('keydown', (e) => {
-  if (!S || S.mode !== 'main') return;
-  if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key >= '1' && e.key <= '5') {
-    e.preventDefault();
-    post({ cmd: 'setTab', tab: Number(e.key) - 1 });
-  } else if (e.key === 'Escape' && document.activeElement?.tagName !== 'INPUT') {
-    e.preventDefault();
-    post({ cmd: 'hideWindow' });
-  }
+// ------------------------------------------------------------------------------------------ interaction guard
+// While the user drags a slider (or a drop-down list is open) incoming state must not rebuild the page.
+document.addEventListener('pointerdown', e => { if (e.target.closest('input[type=range], select')) interacting = true; }, true);
+function endInteraction() { if (!interacting) return; interacting = false; if (pending) setTimeout(() => { if (!interacting) render(true); }, 0); }
+document.addEventListener('pointerup', e => { if (!(e.target.closest && e.target.closest('select'))) endInteraction(); }, true);
+document.addEventListener('change', e => { if (e.target.tagName === 'SELECT') endInteraction(); }, true);
+document.addEventListener('focusout', e => { if (e.target.tagName === 'SELECT') endInteraction(); }, true);
+window.addEventListener('blur', () => endInteraction());
+document.addEventListener('dblclick', e => { if (e.target.id === 'mix') send({cmd: 'resetMix'}); });
+document.addEventListener('keydown', e => {
+  if (KIND !== 'main') return;
+  if (e.ctrlKey && e.key >= '1' && e.key <= '5') { nav(['mixer', 'apps', 'knob', 'audio', 'general'][+e.key - 1]); e.preventDefault(); }
+  if (e.key === 'Escape' && S && S.knob && /…|\.\.\./.test(S.knob.hotkeyText)) send({cmd: 'cancelCapture'});
 });
+document.addEventListener('contextmenu', e => e.preventDefault());
 
-post({ cmd: 'ready' });
+window.scrollToEnd = () => { const sc = document.querySelector('.content-scroll'); if (sc) sc.scrollTop = sc.scrollHeight; };
+window.chrome.webview.addEventListener('message', e => {
+  const m = e.data;
+  if (!m || !m.t) return;
+  if (m.t === 'state') { S = m; render(false); }
+  else if (m.t === 'live') onLive(m);
+  else if (m.t === 'nav') { V.page = m.page; render(true); }
+  else if (m.t === 'wizardStep') { V.step = m.step; render(true); }
+});
+send({cmd: 'ready'});
 </script>
 </body>
 </html>

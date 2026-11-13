@@ -70,6 +70,12 @@ impl TrayIcon {
         }
     }
 
+    /// Explorer restarted (`TaskbarCreated`): the icon must be added again.
+    pub fn readd(&mut self, tip: &str) {
+        self.added = false;
+        self.add(tip);
+    }
+
     pub fn update_tooltip(&self, tip: &str) {
         if !self.added {
             return;

@@ -115,6 +115,10 @@ fn default_id_with(en: &IMMDeviceEnumerator, role: Role, flow: Flow) -> Option<S
     unsafe { en.GetDefaultAudioEndpoint(flow.raw(), ERole(role as i32)).ok().and_then(|d| id_of(&d)) }
 }
 
+fn test_real_output() -> Option<String> {
+    std::env::var("DUALMIX_TEST_REAL_OUTPUT").ok().map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty())
+}
+
 pub fn list(flow: Flow, states: u32) -> Vec<DeviceInfo> {
     let mut out = Vec::new();
     let Ok(en) = com::enumerator() else {
@@ -148,6 +152,13 @@ pub fn list(flow: Flow, states: u32) -> Vec<DeviceInfo> {
             }
             if desc.is_empty() {
                 desc = name.clone();
+            }
+            // Test rigs without a sound card (CI / VMs): DUALMIX_TEST_REAL_OUTPUT=<name part> makes that endpoint
+            // count as a real output instead of a virtual cable.
+            if let Some(t) = test_real_output() {
+                if name.to_lowercase().contains(&t) {
+                    iface = format!("TEST OUTPUT {iface}").replace("VB-Audio", "VBA").replace("Cable", "Cbl");
+                }
             }
             out.push(DeviceInfo {
                 is_default: def.as_deref() == Some(id.as_str()),

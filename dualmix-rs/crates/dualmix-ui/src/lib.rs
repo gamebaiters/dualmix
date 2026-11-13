@@ -4,14 +4,13 @@
 pub mod dialogs;
 #[cfg(windows)]
 pub mod osd;
-pub mod state;
 #[cfg(windows)]
 pub mod tray;
 #[cfg(windows)]
-pub mod webview;
+pub mod webwin;
 
 pub const INSTANCE_MUTEX: &str = "Local\\DualMix.SingleInstance.7f3c2a";
-pub const SHOW_EVENT: &str = "Local\\DualMix.Show.7f3c2a";
+pub const SHOW_EVENT: &str = "Local\\DualMix.ShowWindow.7f3c2a";
 pub const EXIT_EVENT: &str = "Local\\DualMix.Exit.7f3c2a";
 
 #[cfg(windows)]

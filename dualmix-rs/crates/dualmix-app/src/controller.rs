@@ -1,45 +1,240 @@
-//! Core application controller (1:1 port of C# `DualMix.Core.Controller`).
+//! Central application state, 1:1 port of C# `DualMix.Core.Controller`.
 //!
-//! Coordinates WASAPI devices, `AudioRouter`, `SessionEngine`, `EndpointVolume`, `KeyboardHook`,
-//! `KnobController`, `Updater`, `AutoStart`, OSD notifications, and UI state snapshots.
+//! Lives on the UI thread and is only ever touched from the main message loop. Everything that happens on other
+//! threads (endpoint volume callbacks, device notifications, knob keys, session engine, elevated setup, updater)
+//! is posted into the [`Inbox`] and handled here, one message at a time: no re-entrancy, no shared borrows.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use dualmix_audio::devices::{self, DeviceInfo, Flow, Role};
 use dualmix_audio::driver_setup::{self, SetupResult};
 use dualmix_audio::endpoint_volume::{DeviceEvent, DeviceNotifications, EndpointVolume};
 use dualmix_audio::format;
 use dualmix_audio::router::{AudioRouter, RouterState};
-use dualmix_audio::sessions::{EngineEvent, SessionEngine, SessionParams};
+use dualmix_audio::sessions::{AudioAppInfo, EngineEvent, SessionEngine, SessionParams};
 use dualmix_audio::LatencyProfile;
 use dualmix_core::knob::{self, KnobAction, KnobActionKind, KnobConfig};
 use dualmix_core::loc;
 use dualmix_core::log;
-use dualmix_core::math;
-use dualmix_core::rules::{RuleSet, SYSTEM_SOUNDS_KEY};
-use dualmix_core::settings::{
-    AppRule, Channel, DefaultDevicesBackup, EngineMode, HotkeyModifiers, KnobStartFunction, KnobTarget,
-    LanguagePreference, Settings, SettingsStore,
-};
+use dualmix_core::math::{self, ChannelGains};
+use dualmix_core::rules::RuleSet;
+use dualmix_core::settings::{AppRule, Channel, DefaultDevicesBackup, EngineMode, HotkeyModifiers, KnobTarget, Settings, SettingsStore};
 use dualmix_input::{KeyboardHook, KnobController};
-use dualmix_ui::dialogs;
 use dualmix_ui::osd::{OsdInfo, OsdKind};
-use dualmix_ui::state::{DeviceChoice, SetupBannerInfo, StatusSeverity, UiAppRow, UiCommand, UiState};
-use dualmix_ui::tray::TrayStatus;
-use dualmix_ui::webview::LivePatch;
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
-use crate::system_integration;
-use crate::updater::Updater;
+const CLASS_NOT_REGISTERED: i32 = 0x8004_0154u32 as i32;
 
+/// Message posted to the host window when the inbox has work.
 pub const WM_APP_WAKE: u32 = 0x8020;
 
-const SHORTCUT_DEFAULTS: [(i32, HotkeyModifiers); 5] = [
+/// What the knob / shortcut capture is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureTarget {
+    Hotkey,
+    KeyGame,
+    KeyChat,
+    KeyReset,
+}
+
+/// Work posted from other threads.
+#[derive(Debug)]
+pub enum Ev {
+    OutputVolumeChanged,
+    FrontVolumeChanged,
+    ChatVolumeChanged,
+    Device(DeviceEvent),
+    Knob(KnobAction),
+    KeySeen(String),
+    HotkeysApplied,
+    Captured { target: CaptureTarget, vk: i32, mods: HotkeyModifiers },
+    SetupDone(SetupResult),
+    UpdaterChanged,
+    DiagDone(Option<bool>),
+}
+
+/// Thread-safe queue + wake-up of the UI thread (the equivalent of `Dispatcher.BeginInvoke`).
+pub struct Inbox {
+    queue: Mutex<VecDeque<Ev>>,
+    hwnd: AtomicIsize,
+    pending: AtomicBool,
+}
+
+impl Inbox {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self { queue: Mutex::new(VecDeque::new()), hwnd: AtomicIsize::new(0), pending: AtomicBool::new(false) })
+    }
+
+    pub fn set_hwnd(&self, hwnd: isize) {
+        self.hwnd.store(hwnd, Ordering::Release);
+    }
+
+    pub fn post(&self, ev: Ev) {
+        if let Ok(mut q) = self.queue.lock() {
+            q.push_back(ev);
+        }
+        self.wake();
+    }
+
+    pub fn wake(&self) {
+        if self.pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let h = self.hwnd.load(Ordering::Acquire);
+        if h != 0 {
+            unsafe {
+                use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(HWND(h as *mut _), WM_APP_WAKE, WPARAM(0), LPARAM(0));
+            }
+        }
+    }
+
+    /// Takes everything queued so far (called by the UI thread).
+    pub fn drain(&self) -> Vec<Ev> {
+        self.pending.store(false, Ordering::Release);
+        self.queue.lock().map(|mut q| q.drain(..).collect()).unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Success,
+    Info,
+    Warning,
+    Error,
+}
+
+impl Severity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Severity::Success => "success",
+            Severity::Info => "info",
+            Severity::Warning => "warning",
+            Severity::Error => "error",
+        }
+    }
+}
+
+/// Requests for the host (windows, dialogs, tray) produced while handling a message.
+#[derive(Debug, Clone)]
+pub enum HostAction {
+    Osd(OsdInfo, bool),
+    Balloon(String, String),
+    ShowMain,
+    OpenWizard,
+    PickPack,
+    PickApp,
+    CloseWizard,
+    LanguageChanged,
+    ThemeChanged,
+    Exit,
+}
+
+#[derive(Clone, Copy)]
+enum UndoPress {
+    Mix(f64),
+    OutputMute,
+    GameMute,
+    ChatMute,
+}
+
+/// Result of the last driver setup, shown on the Audio page (C# `SetupInfo` InfoBar).
+#[derive(Debug, Clone)]
+pub struct SetupInfo {
+    pub severity: Severity,
+    pub title: String,
+    pub message: String,
+}
+
+pub struct Controller {
+    pub settings: Settings,
+    pub dry_run: bool,
+    inbox: Arc<Inbox>,
+    rules: Arc<RuleSet>,
+    rules_gen: u64,
+    sessions: SessionEngine,
+    pub router: AudioRouter,
+    keyboard: Arc<KeyboardHook>,
+    pub knob: Arc<KnobController>,
+    output_volume: EndpointVolume,
+    master_proxy: EndpointVolume,
+    chat_volume: EndpointVolume,
+    game_amp: f64,
+    chat_amp: f64,
+    notifications: Option<DeviceNotifications>,
+    meters_enabled: bool,
+    save_due: Option<Instant>,
+    virtual_active: bool,
+    dual: bool,
+    last_press_at: i64,
+    undo_press: Option<UndoPress>,
+    next_volume_note: i64,
+    shutdown: bool,
+    configured_endpoints: bool,
+    auto_setup_tried: bool,
+    elevated_config_tried: bool,
+    pack_tried: bool,
+    router_failures: u32,
+    next_evaluate: i64,
+    next_stats_log: i64,
+    devices_changed_at: Option<i64>,
+    defaults_drifted: bool,
+    format_changed: bool,
+    pending_setup: Option<(bool, bool, Option<PathBuf>)>,
+    evaluate_at: Option<i64>,
+    // status
+    pub severity: Severity,
+    pub status_title: String,
+    pub status_message: String,
+    pub needs_driver: bool,
+    pub needs_repair: bool,
+    pub setup_busy: bool,
+    output_name: Option<String>,
+    output_format: Option<format::AudioFormat>,
+    underruns_seen: i64,
+    next_underrun_log: i64,
+    game_name: Option<String>,
+    chat_name: Option<String>,
+    pub virtual_cables: usize,
+    known_level: f64,
+    known_muted: bool,
+    last_mute_toggle_at: i64,
+    // ui
+    pub actions: Vec<HostAction>,
+    pub state_dirty: bool,
+    pub apps_dirty: bool,
+    pub last_key_seen: String,
+    pub capture: Option<CaptureTarget>,
+    pub capture_message: Option<String>,
+    pub setup_info: Option<SetupInfo>,
+    pub diag_text: Option<String>,
+    pub diag_running: bool,
+    pub updater: crate::updater::Updater,
+    /// Bumped every time the devices were looked at again (the UI caches the device list by it).
+    pub devices_gen: u64,
+    pub autostart_enabled: bool,
+    started: Instant,
+}
+
+/// Milliseconds since the process started (`Environment.TickCount64` differences).
+pub fn now_ms() -> i64 {
+    dualmix_audio::router::tick_ms()
+}
+
+pub fn target_name(t: KnobTarget) -> String {
+    match t {
+        KnobTarget::Mix => loc::get("Target.Mix"),
+        KnobTarget::Volume => loc::get("Target.Volume"),
+        KnobTarget::Game => loc::get("Target.Game"),
+        KnobTarget::Chat => loc::get("Target.Chat"),
+    }
+}
+
+/// Default shortcuts for "next knob function", in order of preference.
+pub const SHORTCUT_DEFAULTS: [(i32, HotkeyModifiers); 5] = [
     (0x4D, HotkeyModifiers(1 | 2)), // Ctrl + Alt + M
     (0x4B, HotkeyModifiers(1 | 2)), // Ctrl + Alt + K
     (0x52, HotkeyModifiers(1 | 2)), // Ctrl + Alt + R
@@ -47,157 +242,48 @@ const SHORTCUT_DEFAULTS: [(i32, HotkeyModifiers); 5] = [
     (0x7B, HotkeyModifiers(1 | 2)), // Ctrl + Alt + F12
 ];
 
-#[derive(Debug, Clone)]
-pub enum ControllerEvent {
-    Osd(OsdInfo),
-    StateChanged,
-    LiveChanged,
-    WizardClosed,
-    ShowMain,
-    HideMain,
-    MinimizeMain,
-    ToggleMaxMain,
-    PickAddApp,
-    OpenWizard,
-    Balloon { title: String, body: String },
-}
-
-pub struct WakeHandle {
-    hwnd: std::sync::atomic::AtomicIsize,
-    pending: AtomicBool,
-}
-
-impl WakeHandle {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            hwnd: std::sync::atomic::AtomicIsize::new(0),
-            pending: AtomicBool::new(false),
-        })
-    }
-    pub fn set_hwnd(&self, hwnd: HWND) {
-        self.hwnd.store(hwnd.0 as isize, Ordering::Release);
-    }
-    pub fn clear_pending(&self) {
-        self.pending.store(false, Ordering::Release);
-    }
-    pub fn wake(&self) {
-        let raw = self.hwnd.load(Ordering::Acquire);
-        if raw != 0 && !self.pending.swap(true, Ordering::AcqRel) {
-            let hwnd = HWND(raw as *mut _);
-            unsafe {
-                let _ = PostMessageW(hwnd, WM_APP_WAKE, WPARAM(0), LPARAM(0));
-            }
-        }
-    }
-}
-
-struct MuteBackup {
-    at: Instant,
-    game_muted: bool,
-    chat_muted: bool,
-    output_muted: bool,
-}
-
-pub struct Controller {
-    pub settings: Settings,
-    pub dry_run: bool,
-    pub version: String,
-
-    rules: Arc<RuleSet>,
-    rules_gen: u64,
-
-    router: AudioRouter,
-    sessions: SessionEngine,
-    endpoint_vol: EndpointVolume,
-    master_proxy: EndpointVolume,
-    chat_volume: EndpointVolume,
-    _dev_notify: Option<DeviceNotifications>,
-    keyboard: Arc<KeyboardHook>,
-    knob: Arc<KnobController>,
-    pub updater: Arc<Updater>,
-    wake: Arc<WakeHandle>,
-
-    // Thread-safe event flags/queues drained on UI thread in `tick()`
-    ep_vol_dirty: Arc<AtomicBool>,
-    proxy_vol_dirty: Arc<AtomicBool>,
-    chat_vol_dirty: Arc<AtomicBool>,
-    diag_done: Arc<AtomicBool>,
-    update_dirty: Arc<AtomicBool>,
-    hotkeys_reapplied: Arc<AtomicBool>,
-    dev_events: Arc<Mutex<VecDeque<DeviceEvent>>>,
-    knob_actions: Arc<Mutex<VecDeque<KnobAction>>>,
-    ui_events: Mutex<VecDeque<ControllerEvent>>,
-    last_key_seen: Arc<Mutex<String>>,
-    capture_prompt: Mutex<Option<String>>,
-    capturing_target: Mutex<Option<String>>,
-    captured_input: Arc<Mutex<Option<(i32, HotkeyModifiers)>>>,
-
-    // Async setup / diag worker results
-    setup_busy: Arc<AtomicBool>,
-    setup_result: Arc<Mutex<Option<(SetupResult, bool)>>>,
-    setup_banner: Option<SetupBannerInfo>,
-    diag_busy: Arc<AtomicBool>,
-    diag_text: Arc<Mutex<String>>,
-
-    // State tracking
-    virtual_active: bool,
-    virtual_cables: usize,
-    game_bus: Option<DeviceInfo>,
-    chat_bus: Option<DeviceInfo>,
-    active_output: Option<DeviceInfo>,
-    render_cache: Vec<DeviceInfo>,
-    windows_defaults_applied: bool,
-    defaults_drifted: bool,
-    known_level: f64,
-    known_muted: bool,
-    last_mute_toggle_at: i64,
-    next_volume_note_tick: i64,
-
-    // Startup volumes for restore-on-exit
-    start_ep_vol: Option<(String, f64, bool)>,
-
-    // Runtime & persistence timers
-    save_dirty_since: Option<Instant>,
-    last_mute_backup: Option<MuteBackup>,
-    last_auto_restart: Option<Instant>,
-    auto_restart_count: u32,
-    pending_re_evaluate: Option<Instant>,
-    pending_reconfigure: bool,
-    last_health_log: Instant,
-    last_meter_emit: Instant,
-    meters_enabled: bool,
-    mode_wizard: bool,
-    wizard_step: u8,
-    active_tab: u8,
+fn round_to(v: f64, digits: i32) -> f64 {
+    let f = 10f64.powi(digits);
+    (v * f).round() / f
 }
 
 impl Controller {
-    pub fn new(dry_run: bool, accept_injected_cli: bool, lang_cli: Option<LanguagePreference>, wake: Arc<WakeHandle>) -> Self {
-        if dry_run {
-            SettingsStore::set_read_only(true);
+    pub fn new(mut settings: Settings, dry_run: bool, inbox: Arc<Inbox>) -> Self {
+        // Every start begins on the same knob function (by default the general volume), whatever was left selected.
+        if !dry_run {
+            if let Some(start) = settings.start_target() {
+                if settings.knob_target != start {
+                    log::info(format!("Knob function at start: {start:?} (was {:?})", settings.knob_target));
+                    settings.knob_target = start;
+                }
+            }
         }
-        let mut settings = SettingsStore::load();
-        if let Some(l) = lang_cli {
-            settings.language = l;
-        }
-        loc::initialize(
-            settings.language,
-            match lang_cli {
-                Some(LanguagePreference::English) => Some("en"),
-                Some(LanguagePreference::Italian) => Some("it"),
-                _ => None,
-            },
-        );
-
-        // Enforce start function on launch (default: general Windows Volume)
-        Self::apply_start_function_to(&mut settings);
-
         let rules = Arc::new(RuleSet::from_settings(&settings));
-        let gains = math::compute(&settings);
+        let game_amp = math::taper(settings.game_volume);
+        let chat_amp = math::taper(settings.chat_volume);
 
-        let initial_params = SessionParams {
-            gains,
-            rules: rules.clone(),
+        let ib = Arc::clone(&inbox);
+        let knob = KnobController::new(KnobConfig::from_settings(&settings), Arc::new(move |a| ib.post(Ev::Knob(a))));
+        let k1 = Arc::clone(&knob);
+        let k2 = Arc::clone(&knob);
+        let keyboard = KeyboardHook::new(Arc::new(move |vk, down, inj| k1.handle_key(vk, down, inj)), Arc::new(move |id| k2.handle_hotkey(id)));
+        keyboard.accept_injected.store(settings.accept_injected_keys, Ordering::Relaxed);
+        let ib = Arc::clone(&inbox);
+        keyboard.on_hotkeys_applied(Arc::new(move || ib.post(Ev::HotkeysApplied)));
+        let ib = Arc::clone(&inbox);
+        knob.set_key_seen(Some(Arc::new(move |s| ib.post(Ev::KeySeen(s)))));
+
+        let ib = Arc::clone(&inbox);
+        let output_volume = EndpointVolume::new(Arc::new(move || ib.post(Ev::OutputVolumeChanged)));
+        let ib = Arc::clone(&inbox);
+        let master_proxy = EndpointVolume::new(Arc::new(move || ib.post(Ev::FrontVolumeChanged)));
+        let ib = Arc::clone(&inbox);
+        let chat_volume = EndpointVolume::new(Arc::new(move || ib.post(Ev::ChatVolumeChanged)));
+
+        let updater = crate::updater::Updater::new(settings.update_feed.as_deref());
+        let initial = SessionParams {
+            gains: math::compute(&settings),
+            rules: Arc::clone(&rules),
             rules_gen: 1,
             route_devices: false,
             game_route_id: None,
@@ -207,252 +293,103 @@ impl Controller {
             chat_bus_id: None,
             meters_enabled: false,
         };
-        let sessions = SessionEngine::new(initial_params);
-
-        let ep_vol_dirty = Arc::new(AtomicBool::new(false));
-        let ep_dirty_cb = ep_vol_dirty.clone();
-        let wake_ep = wake.clone();
-        let endpoint_vol = EndpointVolume::new(Arc::new(move || {
-            ep_dirty_cb.store(true, Ordering::Release);
-            wake_ep.wake();
-        }));
-
-        let proxy_vol_dirty = Arc::new(AtomicBool::new(false));
-        let proxy_dirty_cb = proxy_vol_dirty.clone();
-        let wake_proxy = wake.clone();
-        let master_proxy = EndpointVolume::new(Arc::new(move || {
-            proxy_dirty_cb.store(true, Ordering::Release);
-            wake_proxy.wake();
-        }));
-
-        let chat_vol_dirty = Arc::new(AtomicBool::new(false));
-        let chat_dirty_cb = chat_vol_dirty.clone();
-        let wake_chat = wake.clone();
-        let chat_volume = EndpointVolume::new(Arc::new(move || {
-            chat_dirty_cb.store(true, Ordering::Release);
-            wake_chat.wake();
-        }));
-
-        let diag_done = Arc::new(AtomicBool::new(false));
-        let update_dirty = Arc::new(AtomicBool::new(false));
-        let hotkeys_reapplied = Arc::new(AtomicBool::new(false));
-
-        let dev_events = Arc::new(Mutex::new(VecDeque::new()));
-        let dev_cb_q = dev_events.clone();
-        let wake_dev = wake.clone();
-        let dev_notify = if dry_run {
-            None
-        } else {
-            DeviceNotifications::register(Arc::new(move |ev| {
-                if let Ok(mut q) = dev_cb_q.lock() {
-                    q.push_back(ev);
-                }
-                wake_dev.wake();
-            }))
-        };
-
-        let knob_actions = Arc::new(Mutex::new(VecDeque::new()));
-        let ka_cb = knob_actions.clone();
-        let wake_knob = wake.clone();
-        let knob = KnobController::new(
-            KnobConfig::from_settings(&settings),
-            Arc::new(move |act| {
-                if let Ok(mut q) = ka_cb.lock() {
-                    q.push_back(act);
-                }
-                wake_knob.wake();
-            }),
-        );
-
-        let knob_slot = Arc::new(OnceLock::<Arc<KnobController>>::new());
-        let _ = knob_slot.set(knob.clone());
-        let k_key = knob_slot.clone();
-        let k_hot = knob_slot.clone();
-        let keyboard = KeyboardHook::new(
-            Arc::new(move |vk, down, injected| {
-                if let Some(kc) = k_key.get() {
-                    kc.handle_key(vk, down, injected)
-                } else {
-                    false
-                }
-            }),
-            Arc::new(move |id| {
-                if let Some(kc) = k_hot.get() {
-                    kc.handle_hotkey(id);
-                }
-            }),
-        );
-        if settings.accept_injected_keys || accept_injected_cli {
-            keyboard.accept_injected.store(true, Ordering::Release);
-        }
-
-        let last_key_seen = Arc::new(Mutex::new(String::from("-")));
-        let lks = last_key_seen.clone();
-        let wake_ks = wake.clone();
-        knob.set_key_seen(Some(Arc::new(move |desc| {
-            if let Ok(mut g) = lks.lock() {
-                *g = desc;
-            }
-            wake_ks.wake();
-        })));
-        let hk_flag = hotkeys_reapplied.clone();
-        let wake_hk = wake.clone();
-        keyboard.on_hotkeys_applied(Arc::new(move || {
-            hk_flag.store(true, Ordering::Release);
-            wake_hk.wake();
-        }));
-        knob.attach(keyboard.clone());
-
-        let version = env!("CARGO_PKG_VERSION").to_string();
-        let updater = Arc::new(Updater::new(version.clone(), settings.update_feed.as_deref()));
-
-        if !dry_run {
-            // Keep the autostart task pointing at the current installation (e.g. after upgrading from .NET v2.3.0).
-            if settings.start_with_windows && !system_integration::autostart_is_current() {
-                system_integration::autostart_set(true);
-            } else if !settings.start_with_windows && system_integration::autostart_is_enabled() {
-                system_integration::autostart_set(false);
-            }
-        }
-
-        let mut c = Self {
+        let c = Self {
             settings,
             dry_run,
-            version,
+            inbox,
             rules,
             rules_gen: 1,
+            sessions: SessionEngine::new(initial),
             router: AudioRouter::new(),
-            sessions,
-            endpoint_vol,
-            master_proxy,
-            chat_volume,
-            _dev_notify: dev_notify,
             keyboard,
             knob,
-            updater,
-            wake,
-            ep_vol_dirty,
-            proxy_vol_dirty,
-            chat_vol_dirty,
-            diag_done,
-            update_dirty,
-            hotkeys_reapplied,
-            dev_events,
-            knob_actions,
-            ui_events: Mutex::new(VecDeque::new()),
-            last_key_seen,
-            capture_prompt: Mutex::new(None),
-            capturing_target: Mutex::new(None),
-            captured_input: Arc::new(Mutex::new(None)),
-            setup_busy: Arc::new(AtomicBool::new(false)),
-            setup_result: Arc::new(Mutex::new(None)),
-            setup_banner: None,
-            diag_busy: Arc::new(AtomicBool::new(false)),
-            diag_text: Arc::new(Mutex::new(String::new())),
+            output_volume,
+            master_proxy,
+            chat_volume,
+            game_amp,
+            chat_amp,
+            notifications: None,
+            meters_enabled: false,
+            save_due: None,
             virtual_active: false,
-            virtual_cables: 0,
-            game_bus: None,
-            chat_bus: None,
-            active_output: None,
-            render_cache: Vec::new(),
-            windows_defaults_applied: false,
+            dual: false,
+            last_press_at: 0,
+            undo_press: None,
+            next_volume_note: 0,
+            shutdown: false,
+            configured_endpoints: false,
+            auto_setup_tried: false,
+            elevated_config_tried: false,
+            pack_tried: false,
+            router_failures: 0,
+            next_evaluate: 0,
+            next_stats_log: 0,
+            devices_changed_at: None,
             defaults_drifted: false,
+            format_changed: false,
+            pending_setup: None,
+            evaluate_at: None,
+            severity: Severity::Info,
+            status_title: loc::get("Status.Starting"),
+            status_message: String::new(),
+            needs_driver: false,
+            needs_repair: false,
+            setup_busy: false,
+            output_name: None,
+            output_format: None,
+            underruns_seen: 0,
+            next_underrun_log: 0,
+            game_name: None,
+            chat_name: None,
+            virtual_cables: 0,
             known_level: -1.0,
             known_muted: false,
             last_mute_toggle_at: 0,
-            next_volume_note_tick: 0,
-            start_ep_vol: None,
-            save_dirty_since: None,
-            last_mute_backup: None,
-            last_auto_restart: None,
-            auto_restart_count: 0,
-            pending_re_evaluate: None,
-            pending_reconfigure: false,
-            last_health_log: Instant::now(),
-            last_meter_emit: Instant::now(),
-            meters_enabled: false,
-            mode_wizard: false,
-            wizard_step: 1,
-            active_tab: 0,
+            actions: Vec::new(),
+            state_dirty: true,
+            apps_dirty: true,
+            last_key_seen: String::new(),
+            capture: None,
+            capture_message: None,
+            setup_info: None,
+            diag_text: None,
+            diag_running: false,
+            updater,
+            devices_gen: 0,
+            autostart_enabled: false,
+            started: Instant::now(),
         };
-
-        if !dry_run {
-            c.recover_from_previous_run();
-            c.keyboard.start();
-            c.sessions.start();
-        }
-        c.evaluate(true);
+        c.sessions.update(c.build_params());
         c
     }
 
-    pub fn meters_enabled(&self) -> bool {
-        self.meters_enabled
+    pub fn mark_auto_setup_handled(&mut self) {
+        self.auto_setup_tried = true;
     }
 
-    pub fn is_wizard_mode(&self) -> bool {
-        self.mode_wizard
+    pub fn inbox(&self) -> Arc<Inbox> {
+        Arc::clone(&self.inbox)
     }
 
-    pub fn set_wizard_mode(&mut self, wizard: bool) {
-        self.mode_wizard = wizard;
-        self.wizard_step = 1;
-    }
+    // ===================================================================== lifecycle
 
-    pub fn set_meters_enabled(&mut self, enabled: bool) {
-        if self.meters_enabled != enabled {
-            self.meters_enabled = enabled;
-            self.push_session_params();
-        }
-    }
-
-    pub fn pop_event(&mut self) -> Option<ControllerEvent> {
-        self.ui_events.lock().ok().and_then(|mut q| q.pop_front())
-    }
-
-    fn queue_event(&self, ev: ControllerEvent) {
-        if let Ok(mut q) = self.ui_events.lock() {
-            q.push_back(ev);
-        }
-    }
-
-    /// Queues an event for the UI event drain without posting `WM_APP_WAKE` from the UI thread.
-    fn push_event(&self, ev: ControllerEvent) {
-        self.queue_event(ev);
-    }
-
-    pub fn push_event_balloon(&self, title: String, body: String) {
-        self.push_event(ControllerEvent::Balloon { title, body });
-    }
-
-    fn apply_start_function_to(s: &mut Settings) {
-        let wanted = match s.knob_start_function {
-            KnobStartFunction::Last => return,
-            KnobStartFunction::Mix => KnobTarget::Mix,
-            KnobStartFunction::Volume => KnobTarget::Volume,
-            KnobStartFunction::Game => KnobTarget::Game,
-            KnobStartFunction::Chat => KnobTarget::Chat,
-        };
-        if s.knob_cycle.contains(&wanted) {
-            s.knob_target = wanted;
-        } else {
-            s.knob_target = KnobTarget::Volume;
-        }
-    }
-
-    fn mark_dirty(&mut self) {
-        if self.save_dirty_since.is_none() {
-            self.save_dirty_since = Some(Instant::now());
-        }
-    }
-
-    pub fn save_now(&mut self) {
-        self.save_dirty_since = None;
+    pub fn start(&mut self) {
+        self.sessions.start();
         if !self.dry_run {
-            SettingsStore::save(&self.settings);
+            self.recover_from_previous_run();
+            self.knob.attach(Arc::clone(&self.keyboard));
+            self.keyboard.start();
         }
+        let ib = Arc::clone(&self.inbox);
+        self.notifications = DeviceNotifications::register(Arc::new(move |e| ib.post(Ev::Device(e))));
+        self.evaluate();
+        log::info(format!(
+            "Controller started, mode {:?}, mix {:.2}, knob {:?}",
+            self.settings.mode, self.settings.mix, self.settings.knob_target
+        ));
     }
 
-    /// Undoes leftovers of a crash or forced shutdown while virtual devices were active.
+    /// Undo leftovers of a crash/forced shutdown while the virtual devices were active.
     fn recover_from_previous_run(&mut self) {
         if self.settings.defaults_backup.is_some() {
             log::info("Restoring default devices left over by a previous run");
@@ -460,816 +397,691 @@ impl Controller {
         }
         if !self.settings.routed_apps.is_empty() {
             log::info("Resetting per-app devices left over by a previous run");
-            let keys = std::mem::take(&mut self.settings.routed_apps);
-            let _ = self
-                .sessions
-                .unroute_all(keys)
-                .recv_timeout(Duration::from_millis(1200));
-            self.save_now();
+            let keys = self.settings.routed_apps.clone();
+            let rx = self.sessions.unroute_all(keys);
+            if rx.recv_timeout(std::time::Duration::from_millis(2500)).unwrap_or(false) {
+                self.settings.routed_apps.clear();
+                self.schedule_save();
+            }
         }
-    }
-
-    fn ensure_shortcut_usable(&mut self) {
-        if self.dry_run
-            || self.settings.knob_hotkey_custom
-            || !self.settings.knob_enabled
-            || self.settings.knob_hotkey_key == 0
-        {
-            return;
-        }
-        if self
-            .keyboard
-            .is_hotkey_active(self.settings.knob_hotkey_key, self.settings.knob_hotkey_modifiers)
-        {
-            return;
-        }
-        let cur = (self.settings.knob_hotkey_key, self.settings.knob_hotkey_modifiers);
-        let Some(pos) = SHORTCUT_DEFAULTS.iter().position(|&c| c == cur) else {
-            return;
-        };
-        if pos + 1 >= SHORTCUT_DEFAULTS.len() {
-            return;
-        }
-        let old = knob::chord_name(cur.0, cur.1);
-        let next = SHORTCUT_DEFAULTS[pos + 1];
-        self.settings.knob_hotkey_key = next.0;
-        self.settings.knob_hotkey_modifiers = next.1;
-        let new_txt = knob::chord_name(next.0, next.1);
-        log::info(format!(
-            "Shortcut {old} is already used by another program: using {new_txt} instead"
-        ));
-        self.knob.update_config(KnobConfig::from_settings(&self.settings));
-        self.mark_dirty();
-        self.queue_event(ControllerEvent::StateChanged);
     }
 
     pub fn shutdown(&mut self) {
-        if self.settings.restore_volumes_on_exit && !self.dry_run {
-            if let Some((ref id, lvl, muted)) = self.start_ep_vol {
-                if self.endpoint_vol.device_id() == Some(id.as_str()) {
-                    self.endpoint_vol.set_level(lvl);
-                    self.endpoint_vol.set_muted(muted);
-                }
-            }
-        }
-        self.save_now();
-        self.router.stop();
-        if !self.dry_run {
-            let _ = self
-                .sessions
-                .unroute_all(self.settings.routed_apps.clone())
-                .recv_timeout(Duration::from_millis(800));
-            self.settings.routed_apps.clear();
-            self.sessions.stop(self.settings.restore_volumes_on_exit);
-            self.restore_windows_defaults();
-            self.keyboard.stop();
-        }
-        self.master_proxy.detach();
-        self.chat_volume.detach();
-        self.endpoint_vol.detach();
-    }
-
-    pub fn evaluate(&mut self, reconfigure_endpoints: bool) {
-        if self.dry_run {
-            self.render_cache = devices::list_render();
-            let (g, c) = devices::find_cables(&self.render_cache);
-            self.virtual_cables = devices::find_buses(&self.render_cache).len().min(2);
-            self.game_bus = g;
-            self.chat_bus = c;
-            self.active_output = self
-                .settings
-                .output_device_id
-                .as_deref()
-                .and_then(|id| self.render_cache.iter().find(|d| d.id == id).cloned())
-                .or_else(|| devices::find_preferred_output(&self.render_cache, None).cloned());
-            if let Some(ref out) = self.active_output {
-                self.endpoint_vol.attach(Some(&out.id));
-            }
+        if self.shutdown {
             return;
         }
-
-        self.render_cache = devices::list_render();
-        let saved_out = self
-            .settings
-            .output_device_id
-            .as_deref()
-            .and_then(|id| self.render_cache.iter().find(|d| d.id == id).cloned());
-        let output = saved_out.or_else(|| devices::find_preferred_output(&self.render_cache, None).cloned());
-        self.active_output = output.clone();
-
-        if let Some(ref out) = output {
-            let changed_ep = self.endpoint_vol.device_id() != Some(out.id.as_str());
-            self.endpoint_vol.attach(Some(&out.id));
-            if changed_ep && self.start_ep_vol.is_none() && self.endpoint_vol.is_available() {
-                self.start_ep_vol = Some((
-                    out.id.clone(),
-                    self.endpoint_vol.level(),
-                    self.endpoint_vol.muted(),
-                ));
-            }
-        } else {
-            self.endpoint_vol.detach();
+        self.shutdown = true;
+        if self.dry_run {
+            self.router.stop();
+            self.sessions.stop(false);
+            return;
         }
+        self.keyboard.stop();
+        self.notifications = None;
+        self.push_params(); // routing off from now on
+        if self.virtual_active || !self.settings.routed_apps.is_empty() {
+            let rx = self.sessions.unroute_all(self.settings.routed_apps.clone());
+            if rx.recv_timeout(std::time::Duration::from_millis(2500)).unwrap_or(false) {
+                self.settings.routed_apps.clear();
+            }
+        }
+        self.restore_windows_defaults();
+        // The mixer stops only after the apps are back on the real device.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        self.router.stop();
+        self.sessions.stop(self.settings.restore_volumes_on_exit);
+        self.output_volume.detach();
+        self.master_proxy.detach();
+        self.chat_volume.detach();
+        SettingsStore::save(&self.settings);
+        log::info("Controller shut down");
+    }
 
-        self.virtual_cables = devices::find_buses(&self.render_cache).len().min(2);
-        let want_virtual = self.settings.mode == EngineMode::VirtualDevices && self.virtual_cables > 0 && output.is_some();
+    // ===================================================================== inbox
 
-        if want_virtual {
-            let out = output.unwrap();
-            if reconfigure_endpoints {
-                let res = driver_setup::configure(&self.settings, false, None);
-                if res.changed {
-                    self.render_cache = devices::list_render();
+    /// Handles everything posted by other threads. Returns true when something was processed.
+    pub fn handle_inbox(&mut self) -> bool {
+        let evs = self.inbox.drain();
+        let any = !evs.is_empty();
+        for ev in evs {
+            if self.shutdown {
+                break;
+            }
+            match ev {
+                Ev::OutputVolumeChanged => self.on_output_volume_changed(),
+                Ev::FrontVolumeChanged => self.on_front_volume_changed(),
+                Ev::ChatVolumeChanged => self.pull_cable_volumes(),
+                Ev::Device(d) => self.on_device_event(d),
+                Ev::Knob(a) => self.on_knob_action(a),
+                Ev::KeySeen(s) => {
+                    self.last_key_seen = format!("{}  {s}", time_hms());
+                }
+                Ev::HotkeysApplied => {
+                    self.ensure_shortcut_usable();
+                    self.state_dirty = true;
+                }
+                Ev::Captured { target, vk, mods } => self.on_captured(target, vk, mods),
+                Ev::SetupDone(r) => self.on_setup_done(r),
+                Ev::UpdaterChanged => {
+                    self.state_dirty = true;
+                }
+                Ev::DiagDone(ok) => {
+                    self.diag_running = false;
+                    self.diag_text = Some(match ok {
+                        Some(true) => loc::get("General.DiagOk"),
+                        Some(false) => loc::get("General.DiagIssues"),
+                        None => loc::fmt("General.DiagFail", &["DualMix.exe --diag"]),
+                    });
+                    let file = log::data_dir().join("diag.txt");
+                    if file.exists() {
+                        dualmix_ui::dialogs::shell_open("notepad.exe", Some(&format!("\"{}\"", file.display())));
+                    }
+                    self.state_dirty = true;
                 }
             }
-            let (g, c) = devices::find_cables(&self.render_cache);
-            self.game_bus = g.clone();
-            self.chat_bus = c.clone();
-            if let Some(chat_dev) = c {
-                let want_game_id = if self.settings.game_direct { None } else { g.as_ref().map(|d| d.id.as_str()) };
-                let need_restart = !self.router.is_running()
-                    || self.router.output_id().as_deref() != Some(out.id.as_str())
-                    || self.router.chat_id().as_deref() != Some(chat_dev.id.as_str())
-                    || self.router.game_id().as_deref() != want_game_id;
+        }
+        any
+    }
 
-                if need_restart && !self.router.blocked() {
-                    let mut prof = LatencyProfile::for_mode(self.settings.latency);
-                    prof.extra_queue_ms = prof.extra_queue_ms.max(self.settings.learned_queue_ms);
-                    prof.extra_source_ms = prof.extra_source_ms.max(self.settings.learned_source_ms);
-                    self.router.set_gains(math::compute(&self.settings));
-                    if let Err(e) = self.router.start(want_game_id, &chat_dev.id, &out.id, prof) {
-                        log::error(format!("Router start failed: {e}"));
-                    } else {
-                        self.settings.game_device_id = want_game_id.map(str::to_string);
-                        self.settings.chat_device_id = Some(chat_dev.id.clone());
-                        if !self.settings.output_chosen_by_user {
-                            self.settings.output_device_id = Some(out.id.clone());
-                        }
+    fn on_device_event(&mut self, e: DeviceEvent) {
+        match e {
+            DeviceEvent::Changed => {
+                if self.devices_changed_at.is_none() {
+                    self.devices_changed_at = Some(now_ms());
+                }
+            }
+            DeviceEvent::DefaultChanged { role, id } => {
+                if !self.virtual_active {
+                    return;
+                }
+                let s = &self.settings;
+                let expected = if role == Role::Communications as i32 {
+                    s.chat_device_id.clone()
+                } else if self.game_via_bus() {
+                    s.game_device_id.clone()
+                } else {
+                    s.output_device_id.clone()
+                };
+                if !expected.is_some_and(|e| e.eq_ignore_ascii_case(&id)) {
+                    self.defaults_drifted = true;
+                }
+            }
+            DeviceEvent::FormatChanged { id } => {
+                if Some(&id) == self.settings.output_device_id.as_ref() {
+                    self.format_changed = true;
+                    if self.devices_changed_at.is_none() {
+                        self.devices_changed_at = Some(now_ms());
                     }
                 }
-                self.virtual_active = true;
-                self.chat_volume.attach(Some(&chat_dev.id));
-                if self.settings.set_windows_defaults {
-                    self.apply_windows_defaults(want_game_id, &chat_dev.id, &out.id);
-                    let proxy_id = if !self.settings.game_direct {
-                        g.as_ref().map(|d| d.id.as_str())
-                    } else {
-                        None
-                    };
-                    self.master_proxy.attach(proxy_id);
-                } else {
-                    self.master_proxy.detach();
-                    self.restore_windows_defaults();
-                }
-                self.push_cable_volumes();
-            } else {
-                self.deactivate_virtual();
             }
+        }
+    }
+
+    // ===================================================================== gains / levels
+
+    /// Linear gains: channel volume × balance, exactly ×1 at 100% / centre. A channel with a virtual device uses
+    /// the Windows volume of that device (its own dB curve); otherwise the perceptual taper of DualMix.
+    pub fn gains(&self) -> ChannelGains {
+        if !self.virtual_active {
+            return math::compute(&self.settings);
+        }
+        let (g, c) = math::balance(self.settings.mix, self.settings.mix_floor);
+        let game = if self.settings.game_muted { 0.0 } else { self.game_amp * math::taper(g) };
+        let chat = if self.settings.chat_muted { 0.0 } else { self.chat_amp * math::taper(c) };
+        ChannelGains { game: game as f32, chat: chat as f32 }
+    }
+
+    pub fn levels(&self) -> (f64, f64) {
+        math::levels(&self.settings)
+    }
+
+    pub fn game_level_text(&self) -> String {
+        math::percent(self.levels().0)
+    }
+
+    pub fn chat_level_text(&self) -> String {
+        math::percent(self.levels().1)
+    }
+
+    pub fn mix_text(&self) -> String {
+        let m = self.settings.mix;
+        if m.abs() < 0.001 {
+            loc::get("Common.Balanced")
+        } else if m < 0.0 {
+            loc::fmt("Mixer.MixText.GameBias", &[&self.chat_level_text()])
         } else {
-            self.deactivate_virtual();
-        }
-
-        self.push_session_params();
-        self.push_event(ControllerEvent::StateChanged);
-    }
-
-    fn deactivate_virtual(&mut self) {
-        if self.virtual_active || self.router.is_running() {
-            self.router.stop();
-        }
-        self.virtual_active = false;
-        self.master_proxy.detach();
-        self.chat_volume.detach();
-        self.known_level = -1.0;
-        self.game_bus = None;
-        self.chat_bus = None;
-        self.restore_windows_defaults();
-    }
-
-    fn front_vol(&self) -> &EndpointVolume {
-        if self.master_proxy.is_available() {
-            &self.master_proxy
-        } else {
-            &self.endpoint_vol
+            loc::fmt("Mixer.MixText.ChatBias", &[&self.game_level_text()])
         }
     }
 
-    fn mirror_output_to_windows(&mut self) {
-        if !self.endpoint_vol.is_available() {
+    // ---- Windows volume of the virtual devices
+
+    /// Windows changed the volume/mute of "DualMix Chat": adopt it.
+    fn pull_cable_volumes(&mut self) {
+        if !self.virtual_active || self.shutdown {
             return;
         }
-        let lvl = self.endpoint_vol.level();
-        let muted = self.endpoint_vol.muted();
-        if self.master_proxy.is_available() {
-            self.master_proxy.set_level(lvl);
-            self.master_proxy.set_muted(muted);
+        if self.chat_volume.is_available() {
+            self.settings.chat_volume = round_to(self.chat_volume.level(), 3);
+            self.settings.chat_muted = self.chat_volume.muted();
+            self.chat_amp = self.chat_volume.amplitude();
         }
-        self.known_level = lvl;
-        self.known_muted = muted;
+        self.mix_state_changed();
     }
 
+    /// DualMix is the authority when the virtual devices come up: write its state to the devices.
     fn push_cable_volumes(&mut self) {
+        self.game_amp = math::taper(self.settings.game_volume);
         if self.chat_volume.is_available() {
             self.chat_volume.set_level(self.settings.chat_volume);
             self.chat_volume.set_muted(self.settings.chat_muted);
+            self.chat_amp = self.chat_volume.amplitude();
+        } else {
+            self.chat_amp = math::taper(self.settings.chat_volume);
         }
         self.mirror_output_to_windows();
     }
 
-    fn pull_cable_volumes(&mut self) -> bool {
-        if !self.virtual_active || !self.chat_volume.is_available() {
-            return false;
-        }
-        let lvl = (self.chat_volume.level() * 1000.0).round() / 1000.0;
-        let muted = self.chat_volume.muted();
-        let changed = (lvl - self.settings.chat_volume).abs() > 0.002 || muted != self.settings.chat_muted;
-        if changed {
-            self.settings.chat_volume = lvl;
-            self.settings.chat_muted = muted;
-            self.apply_gains();
-            self.mark_dirty();
-        }
-        changed
+    fn front_is_proxy(&self) -> bool {
+        self.master_proxy.is_available()
     }
 
-    fn apply_front(&mut self, level: f64, muted: bool) {
+    fn front_level(&self) -> f64 {
+        if self.front_is_proxy() { self.master_proxy.level() } else { self.output_volume.level() }
+    }
+
+    fn front_muted(&self) -> bool {
+        if self.front_is_proxy() { self.master_proxy.muted() } else { self.output_volume.muted() }
+    }
+
+    fn set_front(&self, level: f64, muted: bool) {
+        if self.front_is_proxy() {
+            self.master_proxy.set_level(level);
+            self.master_proxy.set_muted(muted);
+        } else {
+            self.output_volume.set_level(level);
+            self.output_volume.set_muted(muted);
+        }
+    }
+
+    /// The Windows default device shows the volume of the real output.
+    fn mirror_output_to_windows(&mut self) {
+        if !self.output_volume.is_available() {
+            return;
+        }
         if self.master_proxy.is_available() {
-            self.endpoint_vol.set_level(level);
-            self.endpoint_vol.set_muted(muted);
+            self.master_proxy.set_level(self.output_volume.level());
+            self.master_proxy.set_muted(self.output_volume.muted());
         }
-        self.known_level = level;
-        self.known_muted = muted;
+        self.known_level = self.output_volume.level();
+        self.known_muted = self.output_volume.muted();
     }
 
-    fn on_front_volume_changed(&mut self) -> bool {
-        if !self.endpoint_vol.is_available() {
-            return false;
+    /// The Windows volume changed without DualMix doing it. If the knob is on another function, a key-sized step is
+    /// the knob: the Windows volume is put back and the step goes where it belongs. Otherwise it is a real change.
+    fn on_front_volume_changed(&mut self) {
+        if self.shutdown || !self.output_volume.is_available() {
+            return;
         }
-        let (level, muted, using_proxy) = {
-            let front = self.front_vol();
-            (front.level(), front.muted(), self.master_proxy.is_available())
-        };
+        let level = self.front_level();
+        let muted = self.front_muted();
         if self.known_level < 0.0 {
-            self.known_level = self.endpoint_vol.level();
-            self.known_muted = self.endpoint_vol.muted();
+            self.known_level = self.output_volume.level();
+            self.known_muted = self.output_volume.muted();
         }
         let prev_level = self.known_level;
         let prev_muted = self.known_muted;
         let mute_toggled = muted != prev_muted;
         let level_moved = (level - prev_level).abs() > 0.004;
         if !mute_toggled && !level_moved {
-            return false;
+            return;
         }
-
-        let tick = dualmix_audio::router::tick_ms();
-        let mouse = KeyboardHook::is_down(0x01);
+        let tick = now_ms();
+        let mouse = KeyboardHook::is_down(0x01); // a volume slider is being dragged
         let ctrl = KeyboardHook::is_down(0x11);
-
-        if self.settings.knob_enabled && !mouse {
-            let mut fn_target = self.settings.knob_target;
-            if ctrl && self.settings.knob_ctrl_alternate {
-                fn_target = if fn_target == KnobTarget::Mix {
-                    KnobTarget::Volume
-                } else {
-                    KnobTarget::Mix
-                };
+        let s = &self.settings;
+        if s.knob_enabled && !mouse {
+            let mut f = s.knob_target;
+            if ctrl && s.knob_ctrl_alternate {
+                f = if f == KnobTarget::Mix { KnobTarget::Volume } else { KnobTarget::Mix };
             }
-
             if mute_toggled && !level_moved {
-                if ctrl && self.settings.knob_ctrl_press_cycles {
-                    if using_proxy {
-                        self.master_proxy.set_level(prev_level);
-                        self.master_proxy.set_muted(prev_muted);
-                    } else {
-                        self.endpoint_vol.set_level(prev_level);
-                        self.endpoint_vol.set_muted(prev_muted);
-                    }
-                    self.cycle_target();
-                    return true;
+                if ctrl && s.knob_ctrl_press_cycles {
+                    self.set_front(prev_level, prev_muted);
+                    self.cycle_knob_target();
+                    return;
                 }
-                if fn_target != KnobTarget::Volume {
-                    if using_proxy {
-                        self.master_proxy.set_level(prev_level);
-                        self.master_proxy.set_muted(prev_muted);
-                    } else {
-                        self.endpoint_vol.set_level(prev_level);
-                        self.endpoint_vol.set_muted(prev_muted);
-                    }
+                if f != KnobTarget::Volume {
+                    self.set_front(prev_level, prev_muted);
                     log::info("Knob press reached Windows instead of DualMix: corrected");
-                    self.press_specific_target(fn_target);
-                    return true;
+                    self.on_knob_press(f);
+                    return;
                 }
-                if self.settings.knob_double_press_cycles {
-                    if tick.saturating_sub(self.last_mute_toggle_at) <= 600 {
+                // Function "Volume": the press is the normal Windows mute. Two in a row switch function instead,
+                // and the sound is left unmuted, as it was before the first press.
+                if s.knob_double_press_cycles {
+                    if tick - self.last_mute_toggle_at <= 600 {
                         self.last_mute_toggle_at = 0;
                         if muted {
-                            if using_proxy {
-                                self.master_proxy.set_muted(false);
-                            } else {
-                                self.endpoint_vol.set_muted(false);
-                            }
+                            self.set_front(level, false);
                         }
                         self.apply_front(level, false);
-                        self.cycle_target();
-                        return true;
+                        self.cycle_knob_target();
+                        return;
                     }
                     self.last_mute_toggle_at = tick;
                 }
-            } else if !mute_toggled && fn_target != KnobTarget::Volume {
-                let steps = (level - prev_level) / 0.02;
+            } else if !mute_toggled && f != KnobTarget::Volume {
+                let steps = (level - prev_level) / 0.02; // one key press = 2%
                 let k = steps.round() as i32;
                 if k != 0 && k.abs() <= 6 && (steps - k as f64).abs() < 0.26 {
-                    if using_proxy {
-                        self.master_proxy.set_level(prev_level);
-                        self.master_proxy.set_muted(prev_muted);
-                    } else {
-                        self.endpoint_vol.set_level(prev_level);
-                        self.endpoint_vol.set_muted(prev_muted);
+                    self.set_front(prev_level, prev_muted);
+                    if tick >= self.next_volume_note {
+                        self.next_volume_note = tick + 5000;
+                        log::info(format!("Knob turn reached Windows instead of DualMix: corrected (function {f:?})"));
                     }
-                    if tick >= self.next_volume_note_tick {
-                        self.next_volume_note_tick = tick + 5000;
-                        log::info(format!(
-                            "Knob turn reached Windows instead of DualMix: corrected (function {:?})",
-                            fn_target
-                        ));
-                    }
-                    let dir = if k > 0 { 1 } else { -1 };
                     for _ in 0..k.abs() {
-                        self.handle_knob_action(KnobAction {
-                            kind: KnobActionKind::Rotate,
-                            direction: dir,
-                            target: fn_target,
-                        });
+                        self.on_knob_action(KnobAction::rotate(k.signum(), f));
                     }
-                    return true;
-                }
-            }
-        }
-
-        self.apply_front(level, muted);
-        true
-    }
-
-    fn apply_windows_defaults(&mut self, game_id: Option<&str>, chat_id: &str, out_id: &str) {
-        let want_console = game_id.unwrap_or(out_id);
-        let want_comm = chat_id;
-        if self.settings.defaults_backup.is_none() {
-            let mut bk = DefaultDevicesBackup {
-                console: devices::get_default_id(Role::Console, Flow::Render),
-                multimedia: devices::get_default_id(Role::Multimedia, Flow::Render),
-                communications: devices::get_default_id(Role::Communications, Flow::Render),
-            };
-            // Don't back up our own virtual buses as original defaults
-            if bk.console.as_deref() == Some(want_console) || bk.console.as_deref() == Some(want_comm) {
-                bk.console = Some(out_id.to_string());
-            }
-            if bk.multimedia.as_deref() == Some(want_console) || bk.multimedia.as_deref() == Some(want_comm) {
-                bk.multimedia = Some(out_id.to_string());
-            }
-            self.settings.defaults_backup = Some(bk);
-            self.mark_dirty();
-        }
-        if devices::get_default_id(Role::Console, Flow::Render).as_deref() != Some(want_console) {
-            devices::set_default(want_console, Role::Console);
-        }
-        if devices::get_default_id(Role::Multimedia, Flow::Render).as_deref() != Some(want_console) {
-            devices::set_default(want_console, Role::Multimedia);
-        }
-        if devices::get_default_id(Role::Communications, Flow::Render).as_deref() != Some(want_comm) {
-            devices::set_default(want_comm, Role::Communications);
-        }
-        self.windows_defaults_applied = true;
-    }
-
-    fn restore_windows_defaults(&mut self) {
-        let Some(bk) = self.settings.defaults_backup.take() else {
-            self.windows_defaults_applied = false;
-            return;
-        };
-        self.mark_dirty();
-        if let Some(id) = bk.console.as_deref().filter(|id| devices::is_active(Some(id))) {
-            devices::set_default(id, Role::Console);
-        }
-        if let Some(id) = bk.multimedia.as_deref().filter(|id| devices::is_active(Some(id))) {
-            devices::set_default(id, Role::Multimedia);
-        }
-        if let Some(id) = bk.communications.as_deref().filter(|id| devices::is_active(Some(id))) {
-            devices::set_default(id, Role::Communications);
-        }
-        self.windows_defaults_applied = false;
-    }
-
-    fn push_session_params(&self) {
-        let gains = math::compute(&self.settings);
-        self.router.set_gains(gains);
-
-        let game_bus_id = self.game_bus.as_ref().map(|d| d.id.clone());
-        let chat_bus_id = self.chat_bus.as_ref().map(|d| d.id.clone());
-        let out_id = self.active_output.as_ref().map(|d| d.id.clone());
-
-        let (route_devices, game_route_id, chat_route_id, direct_route_id) = if self.virtual_active && self.settings.route_apps_to_devices {
-            (
-                true,
-                if self.settings.game_direct { out_id.clone() } else { game_bus_id.clone() },
-                chat_bus_id.clone(),
-                out_id.clone(),
-            )
-        } else {
-            (false, None, None, None)
-        };
-
-        self.sessions.update(SessionParams {
-            gains,
-            rules: self.rules.clone(),
-            rules_gen: self.rules_gen,
-            route_devices,
-            game_route_id,
-            chat_route_id,
-            direct_route_id,
-            game_bus_id,
-            chat_bus_id,
-            meters_enabled: self.meters_enabled,
-        });
-    }
-
-    fn rebuild_rules(&mut self) {
-        self.rules = Arc::new(RuleSet::from_settings(&self.settings));
-        self.rules_gen += 1;
-        self.push_session_params();
-    }
-
-    fn apply_gains(&self) {
-        self.push_session_params();
-    }
-
-    pub fn tick(&mut self, from_timer: bool) {
-        let mut need_state = false;
-        let mut need_live = false;
-
-        if self.hotkeys_reapplied.swap(false, Ordering::AcqRel) {
-            self.ensure_shortcut_usable();
-        }
-        if self.diag_done.swap(false, Ordering::AcqRel) {
-            need_state = true;
-        }
-        if self.update_dirty.swap(false, Ordering::AcqRel) {
-            need_state = true;
-        }
-
-        // 1. Endpoint volume external changes (output sound card, DualMix Game proxy, DualMix Chat)
-        if self.chat_vol_dirty.swap(false, Ordering::AcqRel) && self.pull_cable_volumes() {
-            need_live = true;
-        }
-        if self.proxy_vol_dirty.swap(false, Ordering::AcqRel) && self.on_front_volume_changed() {
-            need_live = true;
-            if !self.dry_run
-                && self.settings.knob_enabled
-                && self.settings.knob_target == KnobTarget::Volume
-            {
-                let ago = dualmix_audio::router::tick_ms().saturating_sub(self.knob.last_handled_tick());
-                if self.knob.last_handled_tick() == 0 || ago > 600 {
-                    self.show_target_osd(KnobTarget::Volume);
-                }
-            }
-        }
-        if self.ep_vol_dirty.swap(false, Ordering::AcqRel) {
-            if self.master_proxy.is_available() {
-                self.mirror_output_to_windows();
-                need_live = true;
-            } else if self.on_front_volume_changed() {
-                need_live = true;
-                if !self.dry_run
-                    && self.settings.knob_enabled
-                    && self.settings.knob_target == KnobTarget::Volume
-                {
-                    let ago = dualmix_audio::router::tick_ms().saturating_sub(self.knob.last_handled_tick());
-                    if self.knob.last_handled_tick() == 0 || ago > 600 {
-                        self.show_target_osd(KnobTarget::Volume);
-                    }
-                }
-            }
-        }
-
-        // 2. Device notifications (debounced re-evaluate + Windows defaults enforcement)
-        let mut got_dev = false;
-        let mut reconf = false;
-        while let Some(ev) = self.dev_events.lock().ok().and_then(|mut q| q.pop_front()) {
-            got_dev = true;
-            match ev {
-                DeviceEvent::Changed | DeviceEvent::FormatChanged { .. } => {
-                    reconf = true;
-                }
-                DeviceEvent::DefaultChanged { .. } => {
-                    if self.virtual_active && self.settings.set_windows_defaults {
-                        self.defaults_drifted = true;
-                    }
-                }
-            }
-        }
-        if got_dev {
-            self.pending_re_evaluate = Some(Instant::now() + Duration::from_millis(450));
-            if reconf {
-                self.pending_reconfigure = true;
-            }
-        }
-        if let Some(due) = self.pending_re_evaluate {
-            if Instant::now() >= due {
-                self.pending_re_evaluate = None;
-                let rec = std::mem::take(&mut self.pending_reconfigure);
-                let drifted = std::mem::take(&mut self.defaults_drifted);
-                if rec || drifted {
-                    self.evaluate(rec);
-                    need_state = true;
-                }
-            }
-        }
-
-        // 3. Knob actions from hook thread
-        while let Some(act) = self.knob_actions.lock().ok().and_then(|mut q| q.pop_front()) {
-            self.handle_knob_action(act);
-            need_live = true;
-            need_state = true;
-        }
-
-        // 3b. Captured key or hotkey
-        if let Some((vk, mods)) = self.captured_input.lock().ok().and_then(|mut g| g.take()) {
-            let target = self.capturing_target.lock().ok().and_then(|mut g| g.take());
-            *self.capture_prompt.lock().unwrap() = None;
-            if let Some(tgt) = target {
-                match tgt.as_str() {
-                    "hotkey" => {
-                        self.settings.knob_hotkey_key = vk;
-                        self.settings.knob_hotkey_modifiers = mods;
-                        self.settings.knob_hotkey_custom = true;
-                    }
-                    "mixGame" => {
-                        self.settings.key_mix_game = vk;
-                    }
-                    "mixChat" => {
-                        self.settings.key_mix_chat = vk;
-                    }
-                    "mixReset" => {
-                        self.settings.key_mix_reset = vk;
-                    }
-                    _ => {}
-                }
-                self.knob.update_config(KnobConfig::from_settings(&self.settings));
-                self.mark_dirty();
-                need_state = true;
-            }
-        }
-
-        // 4. Session engine events
-        while let Some(ev) = self.sessions.try_dequeue_event() {
-            match ev {
-                EngineEvent::AppDiscovered { key, display_name, exe_path, volume } => {
-                    let entry = self.settings.apps.entry(key.clone()).or_insert_with(AppRule::default);
-                    entry.display_name = Some(display_name);
-                    if exe_path.is_some() {
-                        entry.exe_path = exe_path;
-                    }
-                    if (volume - 1.0).abs() > 0.01 && entry.volume == 1.0 {
-                        entry.volume = volume.clamp(0.0, 1.0);
-                    }
-                    self.mark_dirty();
-                    need_state = true;
-                }
-                EngineEvent::AppVolumeAdopted { key, volume } => {
-                    if let Some(r) = self.settings.apps.get_mut(&key) {
-                        r.volume = volume.clamp(0.0, 1.0);
-                        self.mark_dirty();
-                        need_live = true;
-                    }
-                }
-                EngineEvent::AppRouted { key } => {
-                    if !self.settings.routed_apps.contains(&key) {
-                        self.settings.routed_apps.push(key.clone());
-                        self.mark_dirty();
-                    }
-                    log::info(format!("Routed '{key}'"));
-                }
-            }
-        }
-
-        // 5. Async driver setup completion
-        if let Some((res, _install)) = self.setup_result.lock().ok().and_then(|mut g| g.take()) {
-            self.setup_busy.store(false, Ordering::Release);
-            let sev = if res.ok {
-                StatusSeverity::Success
-            } else if res.declined {
-                StatusSeverity::Warning
-            } else {
-                StatusSeverity::Error
-            };
-            self.setup_banner = Some(SetupBannerInfo {
-                severity: sev,
-                title: if res.ok {
-                    loc::get("Audio.SetupInfo.DoneTitle")
-                } else if res.declined {
-                    loc::get("Audio.SetupInfo.DeclinedTitle")
-                } else {
-                    loc::get("Audio.SetupInfo.FailedTitle")
-                },
-                message: res.message,
-            });
-            self.evaluate(true);
-            need_state = true;
-        }
-
-        // 6. Router notes, learned reserves, & health supervision
-        if let Some(note) = self.router.take_note() {
-            log::info(note);
-        }
-        if self.virtual_active {
-            let lq = self.router.learned_queue_ms();
-            let ls = self.router.learned_source_ms();
-            if lq > self.settings.learned_queue_ms + 0.5 {
-                self.settings.learned_queue_ms = lq;
-                self.mark_dirty();
-            }
-            if ls > self.settings.learned_source_ms + 0.5 {
-                self.settings.learned_source_ms = ls;
-                self.mark_dirty();
-            }
-
-            if self.router.state() == RouterState::Error && !self.router.blocked() {
-                let can_retry = self
-                    .last_auto_restart
-                    .map(|t| t.elapsed() >= Duration::from_secs(3))
-                    .unwrap_or(true);
-                if can_retry && self.auto_restart_count < 3 {
-                    self.last_auto_restart = Some(Instant::now());
-                    self.auto_restart_count += 1;
-                    log::warn(format!(
-                        "Router entered Error state; attempting recovery #{} ({})",
-                        self.auto_restart_count,
-                        self.router.last_error().unwrap_or_default()
-                    ));
-                    self.evaluate(false);
-                    need_state = true;
-                }
-            } else if self.router.state() == RouterState::Running && !self.router.suspended() {
-                if self.last_health_log.elapsed() >= Duration::from_secs(120) {
-                    self.last_health_log = Instant::now();
-                    log::info(format!(
-                        "Audio health: lat={:.1}ms drift=({:+.0},{:+.0})ppm underruns={}",
-                        self.router.latency_ms(),
-                        self.router.game_drift_ppm(),
-                        self.router.chat_drift_ppm(),
-                        self.router.underruns()
-                    ));
-                }
-            }
-        }
-
-        // 7. Debounced settings save
-        if let Some(since) = self.save_dirty_since {
-            if since.elapsed() >= Duration::from_millis(800) {
-                self.save_now();
-            }
-        }
-
-        if need_state {
-            self.queue_event(ControllerEvent::StateChanged);
-        } else if need_live {
-            if from_timer && self.meters_enabled {
-                self.last_meter_emit = Instant::now();
-            }
-            self.queue_event(ControllerEvent::LiveChanged);
-        } else if from_timer && self.meters_enabled && self.last_meter_emit.elapsed() >= Duration::from_millis(55) {
-            self.last_meter_emit = Instant::now();
-            self.queue_event(ControllerEvent::LiveChanged);
-        }
-    }
-
-    fn handle_knob_action(&mut self, act: KnobAction) {
-        let step = self.settings.knob_step.clamp(0.01, 0.25);
-        match act.kind {
-            KnobActionKind::Rotate => {
-                let sign = if self.settings.knob_invert { -1.0 } else { 1.0 };
-                self.step_specific_target(act.target, step * (act.direction as f64) * sign);
-            }
-            KnobActionKind::Press => self.press_specific_target(act.target),
-            KnobActionKind::CycleFunction => self.cycle_target(),
-            KnobActionKind::MixTowardsGame => self.mix_nudge(-step),
-            KnobActionKind::MixTowardsChat => self.mix_nudge(step),
-            KnobActionKind::MixReset => {
-                self.settings.mix = 0.0;
-                self.apply_gains();
-                self.mark_dirty();
-                self.show_target_osd(KnobTarget::Mix);
-            }
-        }
-    }
-
-    pub fn step_specific_target(&mut self, target: KnobTarget, delta: f64) {
-        match target {
-            KnobTarget::Mix => self.mix_nudge(delta),
-            KnobTarget::Volume => {
-                if self.endpoint_vol.is_available() {
-                    let next = (self.endpoint_vol.level() + delta).clamp(0.0, 1.0);
-                    self.endpoint_vol.set_muted(false);
-                    self.endpoint_vol.set_level(next);
-                    self.mirror_output_to_windows();
-                    self.show_target_osd(KnobTarget::Volume);
-                }
-            }
-            KnobTarget::Game => {
-                self.settings.game_muted = false;
-                self.settings.game_volume = (self.settings.game_volume + delta).clamp(0.0, 1.0);
-                self.apply_gains();
-                self.mark_dirty();
-                self.show_target_osd(KnobTarget::Game);
-            }
-            KnobTarget::Chat => {
-                self.settings.chat_muted = false;
-                self.settings.chat_volume = (self.settings.chat_volume + delta).clamp(0.0, 1.0);
-                self.apply_gains();
-                self.push_cable_volumes();
-                self.mark_dirty();
-                self.show_target_osd(KnobTarget::Chat);
-            }
-        }
-    }
-
-    pub fn press_specific_target(&mut self, target: KnobTarget) {
-        let now = Instant::now();
-        if self.settings.knob_double_press_cycles {
-            if let Some(prev) = self.last_mute_backup.take() {
-                if prev.at.elapsed() <= Duration::from_millis(450) {
-                    // Revert the first press's mute so double-press cleanly cycles without leaving channels muted
-                    self.settings.game_muted = prev.game_muted;
-                    self.settings.chat_muted = prev.chat_muted;
-                    if self.endpoint_vol.is_available() {
-                        self.endpoint_vol.set_muted(prev.output_muted);
-                    }
-                    self.apply_gains();
-                    self.push_cable_volumes();
-                    self.cycle_target();
                     return;
                 }
             }
         }
+        self.apply_front(level, muted);
+    }
 
-        self.last_mute_backup = Some(MuteBackup {
-            at: now,
-            game_muted: self.settings.game_muted,
-            chat_muted: self.settings.chat_muted,
-            output_muted: self.endpoint_vol.muted(),
-        });
+    /// A real change of the Windows volume: the sound card follows.
+    fn apply_front(&mut self, level: f64, muted: bool) {
+        if self.master_proxy.is_available() {
+            self.output_volume.set_level(level);
+            self.output_volume.set_muted(muted);
+        }
+        self.known_level = level;
+        self.known_muted = muted;
+        self.state_dirty = true;
+    }
 
-        match target {
-            KnobTarget::Mix => {
-                if self.settings.knob_mix_press_mutes {
-                    // 1 press on Mix mutes everything (master + channels) or unmutes everything cleanly
-                    let any_muted = self.settings.game_muted && self.settings.chat_muted
-                        && (!self.endpoint_vol.is_available() || self.endpoint_vol.muted());
-                    let next = !any_muted;
-                    self.settings.game_muted = next;
-                    self.settings.chat_muted = next;
-                    if self.endpoint_vol.is_available() {
-                        self.endpoint_vol.set_muted(next);
-                    }
-                    self.apply_gains();
-                    self.push_cable_volumes();
-                    self.mark_dirty();
-                    self.show_target_osd(KnobTarget::Volume);
-                } else {
-                    self.cycle_target();
+    /// The real output changed (sound card software, or Windows when it is the default device).
+    fn on_output_volume_changed(&mut self) {
+        if self.shutdown {
+            return;
+        }
+        if self.master_proxy.is_available() {
+            self.mirror_output_to_windows();
+            self.state_dirty = true;
+        } else {
+            self.on_front_volume_changed();
+        }
+    }
+
+    pub fn output_volume_available(&self) -> bool {
+        self.output_volume.is_available()
+    }
+
+    pub fn output_volume_percent(&self) -> f64 {
+        (self.output_volume.level() * 100.0).round()
+    }
+
+    pub fn set_output_volume_percent(&mut self, value: f64) {
+        self.output_volume.set_level(value / 100.0);
+        if value > 0.0 && self.output_volume.muted() {
+            self.output_volume.set_muted(false);
+        }
+        self.mirror_output_to_windows();
+        self.state_dirty = true;
+    }
+
+    pub fn output_muted(&self) -> bool {
+        self.output_volume.muted()
+    }
+
+    pub fn set_output_muted(&mut self, v: bool) {
+        self.output_volume.set_muted(v);
+        self.mirror_output_to_windows();
+        self.state_dirty = true;
+    }
+
+    // ---- meters
+
+    pub fn game_peak(&self) -> f32 {
+        if self.game_via_bus() { self.router.game_peak().max(self.sessions.game_peak()) } else { self.sessions.game_peak() }
+    }
+
+    pub fn chat_peak(&self) -> f32 {
+        if self.virtual_active { self.router.chat_peak() } else { self.sessions.chat_peak() }
+    }
+
+    pub fn output_peak(&self) -> f32 {
+        let r = if self.virtual_active { self.router.output_peak() } else { 0.0 };
+        r.max(self.game_peak().max(self.chat_peak()))
+    }
+
+    pub fn apps(&self) -> Arc<Vec<AudioAppInfo>> {
+        self.sessions.snapshot()
+    }
+
+    pub fn meters_enabled(&self) -> bool {
+        self.meters_enabled
+    }
+
+    pub fn set_meters_enabled(&mut self, v: bool) {
+        if self.meters_enabled == v {
+            return;
+        }
+        self.meters_enabled = v;
+        self.push_params();
+    }
+
+    // ---- status
+
+    pub fn virtual_active(&self) -> bool {
+        self.virtual_active
+    }
+
+    pub fn has_game_bus(&self) -> bool {
+        self.virtual_active && self.dual
+    }
+
+    pub fn game_via_bus(&self) -> bool {
+        self.virtual_active && self.dual && !self.settings.game_direct
+    }
+
+    pub fn output_name(&self) -> String {
+        self.output_name.clone().unwrap_or_else(|| loc::get("Common.NoOutput"))
+    }
+
+    pub fn game_device_name(&self) -> String {
+        self.game_name.clone().unwrap_or_else(|| "—".into())
+    }
+
+    pub fn chat_device_name(&self) -> String {
+        self.chat_name.clone().unwrap_or_else(|| "—".into())
+    }
+
+    pub fn router_running(&self) -> bool {
+        self.virtual_active && self.router.state() == RouterState::Running
+    }
+
+    pub fn router_idle(&self) -> bool {
+        self.router_running() && self.router.suspended()
+    }
+
+    /// Format of the real output device (what the sound card receives).
+    pub fn format_text(&self) -> String {
+        self.output_format.as_ref().map(format::describe).unwrap_or_else(|| "—".into())
+    }
+
+    pub fn latency_text(&self) -> String {
+        if !self.router_running() {
+            return "—".into();
+        }
+        let l = loc::int0(self.router.latency_ms());
+        if self.game_via_bus() { loc::fmt("Latency.Both", &[&l]) } else { loc::fmt("Latency.ChatOnly", &[&l]) }
+    }
+
+    pub fn engine_text(&self) -> String {
+        if self.virtual_active {
+            if self.game_via_bus() { loc::get("Engine.BothVirtual") } else { loc::get("Engine.ChatVirtual") }
+        } else {
+            loc::get("Engine.PerApp")
+        }
+    }
+
+    pub fn technical_details(&self) -> String {
+        if !self.router_running() {
+            return loc::get("Status.Tech.NotRunning");
+        }
+        let r = &self.router;
+        let game = if self.game_via_bus() {
+            loc::fmt(
+                "Status.Tech.GameBus",
+                &[&r.game_format().map(|f| format::describe(&f)).unwrap_or_default(), &loc::signed1(r.game_drift_ppm())],
+            )
+        } else {
+            loc::get("Status.Tech.GameDirect")
+        };
+        let extra = if r.underruns() > 0 { format!(" ({})", r.dropout_detail()) } else { String::new() };
+        let idle = if r.suspended() { loc::get("Status.Tech.Idle") } else { String::new() };
+        let rt = if r.real_time_scheduling() { String::new() } else { loc::get("Status.Tech.NoRt") };
+        loc::fmt(
+            "Status.Tech.Summary",
+            &[
+                &r.output_format().map(|f| format::describe(&f)).unwrap_or_default(),
+                &game,
+                &r.chat_format().map(|f| format::describe(&f)).unwrap_or_default(),
+                &loc::signed1(r.chat_drift_ppm()),
+                &r.underruns().to_string(),
+                &extra,
+                &idle,
+                &rt,
+            ],
+        )
+    }
+
+    /// Text and severity of the small chip on the Mixer page.
+    pub fn engine_chip(&self) -> String {
+        if self.router_running() {
+            if self.router_idle() { loc::get("Mixer.ChipActiveIdle") } else { loc::fmt("Mixer.ChipActiveLat", &[&self.latency_text()]) }
+        } else if self.virtual_active {
+            loc::get("Mixer.ChipStarting")
+        } else {
+            self.engine_text()
+        }
+    }
+
+    // ===================================================================== mix actions
+
+    pub fn set_mix(&mut self, value: f64, from_knob: bool) {
+        let v = math::snap_center(value.clamp(-1.0, 1.0));
+        if (v - self.settings.mix).abs() < 1e-6 && !from_knob {
+            return;
+        }
+        self.settings.mix = v;
+        self.mix_state_changed();
+        if from_knob {
+            log::info(format!("Knob: mix {v:+.2} (Game {}, Chat {})", self.game_level_text(), self.chat_level_text()));
+            self.show_mix_osd();
+        }
+    }
+
+    /// Slider value −100..100 (gentle magnet around the centre so "balanced" is easy to hit with the mouse).
+    pub fn set_mix_percent(&mut self, value: f64) {
+        self.set_mix(if value.abs() < 3.0 { 0.0 } else { value / 100.0 }, false);
+    }
+
+    pub fn nudge(&mut self, delta: f64) {
+        let current = self.settings.mix;
+        let mut next = current + delta;
+        // The knob stops at the center for one notch when crossing it, so "balanced" is easy to find.
+        if current != 0.0 && next.signum() != current.signum() && next != 0.0 {
+            next = 0.0;
+        }
+        self.set_mix(next, true);
+    }
+
+    pub fn reset_mix(&mut self, from_knob: bool) {
+        self.set_mix(0.0, from_knob);
+    }
+
+    pub fn set_channel_volume(&mut self, ch: Channel, value: f64, from_knob: bool) {
+        let value = round_to(value.clamp(0.0, 1.0), 3);
+        if ch == Channel::Game {
+            self.settings.game_volume = value;
+            if self.settings.game_muted && value > 0.0 && from_knob {
+                self.settings.game_muted = false;
+            }
+            self.game_amp = math::taper(value);
+        } else {
+            self.settings.chat_volume = value;
+            if self.settings.chat_muted && value > 0.0 && from_knob {
+                self.settings.chat_muted = false;
+            }
+            if self.virtual_active && self.chat_volume.is_available() {
+                self.chat_volume.set_level(value);
+                self.chat_volume.set_muted(self.settings.chat_muted);
+                self.chat_amp = self.chat_volume.amplitude();
+            } else {
+                self.chat_amp = math::taper(value);
+            }
+        }
+        self.mix_state_changed();
+        if from_knob {
+            log::info(format!("Knob: {ch:?} volume {:.0}%", value * 100.0));
+            self.show_channel_osd(ch);
+        }
+    }
+
+    pub fn set_game_muted(&mut self, v: bool) {
+        self.settings.game_muted = v;
+        self.mix_state_changed();
+    }
+
+    pub fn set_chat_muted(&mut self, v: bool) {
+        self.settings.chat_muted = v;
+        if self.virtual_active && self.chat_volume.is_available() {
+            self.chat_volume.set_muted(v);
+        }
+        self.mix_state_changed();
+    }
+
+    /// Recomputes and pushes gains after a setting that affects them changed.
+    pub fn refresh_gains(&mut self) {
+        self.mix_state_changed();
+    }
+
+    fn mix_state_changed(&mut self) {
+        self.push_gains();
+        self.state_dirty = true;
+        self.schedule_save();
+    }
+
+    fn push_gains(&mut self) {
+        self.router.set_gains(self.gains());
+        self.push_params();
+    }
+
+    // ===================================================================== knob
+
+    pub fn knob_hotkey_text(&self) -> String {
+        knob::chord_name(self.settings.knob_hotkey_key, self.settings.knob_hotkey_modifiers)
+    }
+
+    /// A default shortcut that another program already registered would only half work: move on to the next free
+    /// default (a shortcut chosen by the user is never changed).
+    fn ensure_shortcut_usable(&mut self) {
+        let s = &self.settings;
+        if self.shutdown || s.knob_hotkey_custom || !s.knob_enabled || s.knob_hotkey_key == 0 {
+            return;
+        }
+        if self.keyboard.is_hotkey_active(s.knob_hotkey_key, s.knob_hotkey_modifiers) {
+            return;
+        }
+        let Some(i) = SHORTCUT_DEFAULTS.iter().position(|&(vk, m)| vk == s.knob_hotkey_key && m == s.knob_hotkey_modifiers) else { return };
+        if i + 1 >= SHORTCUT_DEFAULTS.len() {
+            return;
+        }
+        let old = self.knob_hotkey_text();
+        let (vk, m) = SHORTCUT_DEFAULTS[i + 1];
+        self.settings.knob_hotkey_key = vk;
+        self.settings.knob_hotkey_modifiers = m;
+        log::info(format!("Shortcut {old} is already used by another program: using {} instead", self.knob_hotkey_text()));
+        self.knob_settings_changed(); // registers again, and this check runs once more with the result
+    }
+
+    /// How the keys of the knob reach DualMix, for the settings page.
+    pub fn keyboard_status(&self) -> String {
+        if !self.settings.knob_enabled {
+            return loc::get("Knob.Status.Disabled");
+        }
+        let total = self.knob.bindings().len();
+        let failed = self.keyboard.failed_hotkeys();
+        let active = self.keyboard.active_hotkeys();
+        if failed.is_empty() {
+            loc::fmt("Knob.Status.AllActive", &[&active.to_string()])
+        } else {
+            loc::fmt("Knob.Status.SomeFailed", &[&active.to_string(), &total.to_string(), &failed.join(", ")])
+        }
+    }
+
+    fn on_knob_action(&mut self, a: KnobAction) {
+        let step = self.settings.knob_step;
+        match a.kind {
+            KnobActionKind::Rotate => {
+                let dir = if self.settings.knob_invert { -a.direction } else { a.direction } as f64;
+                match a.target {
+                    // clockwise = towards Chat, like the GameDAC dial
+                    KnobTarget::Mix => self.nudge(dir * step),
+                    KnobTarget::Volume => self.adjust_output_volume(dir * step),
+                    KnobTarget::Game => self.set_channel_volume(Channel::Game, self.settings.game_volume + dir * step, true),
+                    KnobTarget::Chat => self.set_channel_volume(Channel::Chat, self.settings.chat_volume + dir * step, true),
                 }
             }
-            KnobTarget::Volume => {
-                if self.endpoint_vol.is_available() {
-                    let next = !self.endpoint_vol.muted();
-                    self.endpoint_vol.set_muted(next);
-                    self.mirror_output_to_windows();
-                    self.show_target_osd(KnobTarget::Volume);
+            KnobActionKind::Press => self.on_knob_press(a.target),
+            KnobActionKind::CycleFunction => {
+                self.undo_press = None;
+                self.cycle_knob_target();
+            }
+            KnobActionKind::MixTowardsGame => self.nudge(-step),
+            KnobActionKind::MixTowardsChat => self.nudge(step),
+            KnobActionKind::MixReset => self.reset_mix(true),
+        }
+    }
+
+    /// A press acts at once (mute; on the mix: mute everything, or balanced mix when KnobMixPressMutes is off). A
+    /// second press right after it means "double press": the first one is taken back and the knob switches function.
+    fn on_knob_press(&mut self, target: KnobTarget) {
+        let now = now_ms();
+        if self.settings.knob_double_press_cycles && self.undo_press.is_some() && now - self.last_press_at <= 450 {
+            let undo = self.undo_press.take();
+            self.last_press_at = 0;
+            match undo {
+                Some(UndoPress::Mix(before)) => self.set_mix(before, false),
+                Some(UndoPress::OutputMute) => {
+                    let m = !self.output_muted();
+                    self.set_output_muted(m);
                 }
+                Some(UndoPress::GameMute) => self.set_game_muted(!self.settings.game_muted),
+                Some(UndoPress::ChatMute) => self.set_chat_muted(!self.settings.chat_muted),
+                None => {}
+            }
+            self.cycle_knob_target();
+            return;
+        }
+        self.last_press_at = now;
+        match target {
+            KnobTarget::Mix if !self.settings.knob_mix_press_mutes => {
+                let before = self.settings.mix;
+                self.reset_mix(true);
+                self.undo_press = Some(UndoPress::Mix(before));
+            }
+            KnobTarget::Mix | KnobTarget::Volume => {
+                if !self.output_volume.is_available() {
+                    self.undo_press = None;
+                    return;
+                }
+                let m = !self.output_muted();
+                self.set_output_muted(m);
+                log::info(format!("Knob: output {}", if m { "muted" } else { "unmuted" }));
+                self.show_volume_osd();
+                self.undo_press = Some(UndoPress::OutputMute);
             }
             KnobTarget::Game => {
-                self.settings.game_muted = !self.settings.game_muted;
-                self.apply_gains();
-                self.mark_dirty();
-                self.show_target_osd(KnobTarget::Game);
+                self.set_game_muted(!self.settings.game_muted);
+                self.show_channel_osd(Channel::Game);
+                self.undo_press = Some(UndoPress::GameMute);
             }
             KnobTarget::Chat => {
-                self.settings.chat_muted = !self.settings.chat_muted;
-                self.apply_gains();
-                self.push_cable_volumes();
-                self.mark_dirty();
-                self.show_target_osd(KnobTarget::Chat);
+                self.set_chat_muted(!self.settings.chat_muted);
+                self.show_channel_osd(Channel::Chat);
+                self.undo_press = Some(UndoPress::ChatMute);
             }
         }
     }
 
-    pub fn cycle_target(&mut self) {
-        let cycle = if self.settings.knob_cycle.is_empty() {
-            vec![KnobTarget::Mix, KnobTarget::Volume]
-        } else {
-            self.settings.knob_cycle.clone()
-        };
-        let pos = cycle.iter().position(|t| *t == self.settings.knob_target);
-        let next = match pos {
+    pub fn cycle_knob_target(&mut self) {
+        let cycle = if self.settings.knob_cycle.is_empty() { vec![KnobTarget::Mix, KnobTarget::Volume] } else { self.settings.knob_cycle.clone() };
+        let i = cycle.iter().position(|&t| t == self.settings.knob_target);
+        let next = match i {
             Some(i) => cycle[(i + 1) % cycle.len()],
             None => cycle[0],
         };
@@ -1277,932 +1089,746 @@ impl Controller {
     }
 
     pub fn set_knob_target(&mut self, target: KnobTarget, show_osd: bool) {
-        if self.settings.knob_target != target {
-            self.settings.knob_target = target;
-            self.mark_dirty();
-        }
-        if show_osd && self.settings.show_osd {
-            self.push_event(ControllerEvent::Osd(OsdInfo {
-                kind: OsdKind::Function,
-                title: loc::get("Tray.KnobSubMenu"),
-                value_text: Self::target_label(target),
-                value: 0.0,
-                muted: false,
-            }));
-        }
-    }
-
-    pub fn mix_nudge(&mut self, delta: f64) {
-        let raw = (self.settings.mix + delta).clamp(-1.0, 1.0);
-        self.settings.mix = math::snap_center(raw);
-        self.apply_gains();
-        self.mark_dirty();
-        self.show_target_osd(KnobTarget::Mix);
-    }
-
-    pub fn set_mix(&mut self, mix: f64, show_osd: bool) {
-        self.settings.mix = math::snap_center(mix.clamp(-1.0, 1.0));
-        self.apply_gains();
-        self.mark_dirty();
+        self.settings.knob_target = target;
+        self.knob.update_config(KnobConfig::from_settings(&self.settings));
+        self.state_dirty = true;
+        self.schedule_save();
+        log::info(format!("Knob function: {target:?}"));
         if show_osd {
-            self.show_target_osd(KnobTarget::Mix);
+            self.osd(OsdInfo { kind: OsdKind::Function, title: loc::get("Common.Wheel"), value_text: target_name(target), value: 0.0, muted: false }, false);
         }
     }
 
-    pub fn show_target_osd(&self, target: KnobTarget) {
-        if !self.settings.show_osd {
+    /// Master volume from DualMix itself (the function "Volume" normally leaves the keys to Windows).
+    fn adjust_output_volume(&mut self, delta: f64) {
+        if !self.output_volume.is_available() {
             return;
         }
-        let info = match target {
-            KnobTarget::Mix => OsdInfo {
-                kind: OsdKind::Mix,
-                title: loc::get("Target.Mix"),
-                value_text: Self::format_mix_text(self.settings.mix),
-                value: self.settings.mix,
-                muted: false,
-            },
-            KnobTarget::Volume => {
-                let muted = self.endpoint_vol.muted();
-                let lvl = if self.endpoint_vol.is_available() { self.endpoint_vol.level() } else { 1.0 };
-                OsdInfo {
-                    kind: OsdKind::Volume,
-                    title: loc::get("Target.Volume"),
-                    value_text: if muted { loc::get("Common.Muted") } else { math::percent(lvl) },
-                    value: lvl,
-                    muted,
-                }
-            }
-            KnobTarget::Game => OsdInfo {
-                kind: OsdKind::Game,
-                title: loc::get("Common.Game"),
-                value_text: if self.settings.game_muted {
-                    loc::get("Common.Muted")
-                } else {
-                    math::percent(self.settings.game_volume)
-                },
-                value: self.settings.game_volume,
-                muted: self.settings.game_muted,
-            },
-            KnobTarget::Chat => OsdInfo {
-                kind: OsdKind::Chat,
-                title: loc::get("Common.Chat"),
-                value_text: if self.settings.chat_muted {
-                    loc::get("Common.Muted")
-                } else {
-                    math::percent(self.settings.chat_volume)
-                },
-                value: self.settings.chat_volume,
-                muted: self.settings.chat_muted,
-            },
+        let v = (((self.output_volume.level() + delta) * 100.0).round() / 100.0).clamp(0.0, 1.0);
+        self.output_volume.set_level(v);
+        if delta > 0.0 && self.output_volume.muted() {
+            self.output_volume.set_muted(false);
+        }
+        self.mirror_output_to_windows();
+        self.state_dirty = true;
+        log::info(format!("Knob: output volume {:.0}%", v * 100.0));
+        self.show_volume_osd();
+    }
+
+    fn osd(&mut self, info: OsdInfo, force: bool) {
+        if self.settings.show_osd || force {
+            self.actions.push(HostAction::Osd(info, force));
+        }
+    }
+
+    pub fn mix_osd_info(&self) -> OsdInfo {
+        let text = if self.settings.mix.abs() < 0.001 {
+            loc::get("Common.Balanced")
+        } else {
+            format!("Game {} · Chat {}", self.game_level_text(), self.chat_level_text())
         };
-        self.push_event(ControllerEvent::Osd(info));
+        OsdInfo { kind: OsdKind::Mix, title: loc::get("Common.Mix"), value_text: text, value: self.settings.mix, muted: false }
     }
 
-    pub fn handle_ui_command(&mut self, cmd: UiCommand) {
-        match cmd {
-            UiCommand::Ready => {
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::HideWindow => {
-                self.queue_event(ControllerEvent::HideMain);
-            }
-            UiCommand::WindowMinimize => {
-                self.queue_event(ControllerEvent::MinimizeMain);
-            }
-            UiCommand::WindowToggleMaximize => {
-                self.queue_event(ControllerEvent::ToggleMaxMain);
-            }
-            UiCommand::SetTab { tab } => {
-                if self.active_tab != tab {
-                    self.active_tab = tab;
-                    self.queue_event(ControllerEvent::StateChanged);
+    fn show_mix_osd(&mut self) {
+        let i = self.mix_osd_info();
+        self.osd(i, false);
+    }
+
+    fn show_volume_osd(&mut self) {
+        let muted = self.output_volume.muted();
+        let lvl = self.output_volume.level();
+        self.osd(
+            OsdInfo {
+                kind: OsdKind::Volume,
+                title: loc::get("Common.Volume"),
+                value_text: if muted { loc::get("Common.Muted") } else { math::percent(lvl) },
+                value: lvl,
+                muted,
+            },
+            false,
+        );
+    }
+
+    fn show_channel_osd(&mut self, ch: Channel) {
+        let game = ch == Channel::Game;
+        let vol = if game { self.settings.game_volume } else { self.settings.chat_volume };
+        let muted = if game { self.settings.game_muted } else { self.settings.chat_muted };
+        self.osd(
+            OsdInfo {
+                kind: if game { OsdKind::Game } else { OsdKind::Chat },
+                title: if game { loc::get("Common.Game") } else { loc::get("Common.Chat") },
+                value_text: if muted { loc::get("Common.Muted") } else { math::percent(vol) },
+                value: vol,
+                muted,
+            },
+            false,
+        );
+    }
+
+    pub fn set_accept_injected(&mut self, v: bool) {
+        self.keyboard.accept_injected.store(v, Ordering::Relaxed);
+    }
+
+    pub fn knob_settings_changed(&mut self) {
+        self.knob.update_config(KnobConfig::from_settings(&self.settings));
+        self.state_dirty = true;
+        self.schedule_save();
+    }
+
+    /// Starts capturing the next key (settings page); the result arrives as `Ev::Captured`.
+    pub fn begin_capture(&mut self, target: CaptureTarget) {
+        self.capture = Some(target);
+        self.capture_message = None;
+        let ib = Arc::clone(&self.inbox);
+        self.knob.set_capture_next(Some(Box::new(move |vk, mods| ib.post(Ev::Captured { target, vk, mods }))));
+        self.state_dirty = true;
+    }
+
+    pub fn cancel_capture(&mut self) {
+        self.knob.set_capture_next(None);
+        self.capture = None;
+        self.state_dirty = true;
+    }
+
+    fn on_captured(&mut self, target: CaptureTarget, vk: i32, mods: HotkeyModifiers) {
+        self.capture = None;
+        self.state_dirty = true;
+        match target {
+            CaptureTarget::Hotkey => {
+                if vk == 0x1B {
+                    return; // Esc: cancel
                 }
-            }
-            UiCommand::SetWizardStep { step } => {
-                self.wizard_step = step.clamp(1, 3);
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetMix { percent } => {
-                self.set_mix(percent / 100.0, false);
-                self.push_event(ControllerEvent::LiveChanged);
-            }
-            UiCommand::ResetMix => {
-                self.set_mix(0.0, false);
-                self.push_event(ControllerEvent::LiveChanged);
-            }
-            UiCommand::SetGameVolume { percent } => {
-                self.settings.game_volume = (percent / 100.0).clamp(0.0, 1.0);
-                self.apply_gains();
-                self.mark_dirty();
-                self.push_event(ControllerEvent::LiveChanged);
-            }
-            UiCommand::SetChatVolume { percent } => {
-                self.settings.chat_volume = (percent / 100.0).clamp(0.0, 1.0);
-                self.apply_gains();
-                self.push_cable_volumes();
-                self.mark_dirty();
-                self.push_event(ControllerEvent::LiveChanged);
-            }
-            UiCommand::SetGameMuted { muted } => {
-                self.settings.game_muted = muted;
-                self.apply_gains();
-                self.mark_dirty();
-                self.push_event(ControllerEvent::LiveChanged);
-            }
-            UiCommand::SetChatMuted { muted } => {
-                self.settings.chat_muted = muted;
-                self.apply_gains();
-                self.push_cable_volumes();
-                self.mark_dirty();
-                self.push_event(ControllerEvent::LiveChanged);
-            }
-            UiCommand::SetOutputVolume { percent } => {
-                if self.endpoint_vol.is_available() {
-                    self.endpoint_vol.set_level((percent / 100.0).clamp(0.0, 1.0));
-                    self.mirror_output_to_windows();
-                    self.push_event(ControllerEvent::LiveChanged);
+                if (mods == HotkeyModifiers::NONE || mods == HotkeyModifiers::SHIFT) && !knob::usable_alone(vk) {
+                    self.capture_message = Some(loc::get("Knob.HotkeyNeedMod"));
+                    return;
                 }
+                self.settings.knob_hotkey_key = vk;
+                self.settings.knob_hotkey_modifiers = mods;
+                self.settings.knob_hotkey_custom = true;
+                self.knob_settings_changed();
             }
-            UiCommand::SetOutputMuted { muted } => {
-                if self.endpoint_vol.is_available() {
-                    self.endpoint_vol.set_muted(muted);
-                    self.mirror_output_to_windows();
-                    self.push_event(ControllerEvent::LiveChanged);
+            CaptureTarget::KeyGame | CaptureTarget::KeyChat | CaptureTarget::KeyReset => {
+                let vk = if vk == 0x1B { 0 } else { vk };
+                match target {
+                    CaptureTarget::KeyGame => self.settings.key_mix_game = vk,
+                    CaptureTarget::KeyChat => self.settings.key_mix_chat = vk,
+                    _ => self.settings.key_mix_reset = vk,
                 }
-            }
-            UiCommand::SetAppChannel { key, channel } => {
-                let r = self.settings.apps.entry(key).or_insert_with(AppRule::default);
-                r.channel = channel;
-                self.rebuild_rules();
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetSystemChannel { channel } => {
-                self.settings.system_sounds_channel = channel;
-                self.rebuild_rules();
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::ResetAppAuto { key } => {
-                if let Some(r) = self.settings.apps.get_mut(&key) {
-                    r.channel = None;
-                }
-                self.rebuild_rules();
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetAppVolume { key, percent } => {
-                let r = self.settings.apps.entry(key).or_insert_with(AppRule::default);
-                r.volume = (percent / 100.0).clamp(0.0, 1.0);
-                self.sessions.request_rescan();
-                self.mark_dirty();
-                self.push_event(ControllerEvent::LiveChanged);
-            }
-            UiCommand::PickAddApp => {
-                self.queue_event(ControllerEvent::PickAddApp);
-            }
-            UiCommand::SetKnobTarget { target } => {
-                self.set_knob_target(target, false);
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetKnobCycle { cycle } => {
-                self.settings.knob_cycle = if cycle.is_empty() { vec![KnobTarget::Mix, KnobTarget::Volume] } else { cycle };
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetKnobOptions {
-                double_press,
-                ctrl_press,
-                ctrl_alt,
-                enabled,
-                invert,
-                mix_press_mutes,
-            } => {
-                self.settings.knob_double_press_cycles = double_press;
-                self.settings.knob_ctrl_press_cycles = ctrl_press;
-                self.settings.knob_ctrl_alternate = ctrl_alt;
-                self.settings.knob_enabled = enabled;
-                self.settings.knob_invert = invert;
-                self.settings.knob_mix_press_mutes = mix_press_mutes;
-                self.knob.update_config(KnobConfig::from_settings(&self.settings));
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetKnobStartFunction { func } => {
-                self.settings.knob_start_function = func;
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetKnobStep { percent } => {
-                self.settings.knob_step = (percent / 100.0).clamp(0.01, 0.25);
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::CaptureHotkey => {
-                *self.capturing_target.lock().unwrap() = Some("hotkey".to_string());
-                *self.capture_prompt.lock().unwrap() = Some(loc::get("Knob.CapturePrompt"));
-                let wake = self.wake.clone();
-                let cap = self.captured_input.clone();
-                self.knob.set_capture_next(Some(Box::new(move |vk, mods| {
-                    if let Ok(mut g) = cap.lock() {
-                        *g = Some((vk, mods));
-                    }
-                    wake.wake();
-                })));
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::ResetHotkey => {
-                self.settings.knob_hotkey_key = 0x4D;
-                self.settings.knob_hotkey_modifiers = HotkeyModifiers::CTRL.union(HotkeyModifiers::ALT);
-                self.settings.knob_hotkey_custom = false;
-                self.knob.update_config(KnobConfig::from_settings(&self.settings));
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::CaptureKey { which } => {
-                *self.capturing_target.lock().unwrap() = Some(which);
-                *self.capture_prompt.lock().unwrap() = Some(loc::get("Knob.CapturePrompt"));
-                let wake = self.wake.clone();
-                let cap = self.captured_input.clone();
-                self.knob.set_capture_next(Some(Box::new(move |vk, mods| {
-                    if let Ok(mut g) = cap.lock() {
-                        *g = Some((vk, mods));
-                    }
-                    wake.wake();
-                })));
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetOutputDevice { id } => {
-                self.settings.output_device_id = id;
-                self.settings.output_chosen_by_user = self.settings.output_device_id.is_some();
-                self.mark_dirty();
-                self.evaluate(true);
-            }
-            UiCommand::SetEngineMode { mode } => {
-                self.settings.mode = mode;
-                self.mark_dirty();
-                self.evaluate(true);
-            }
-            UiCommand::SetAudioOptions {
-                set_defaults,
-                route_apps,
-                game_direct,
-            } => {
-                self.settings.set_windows_defaults = set_defaults;
-                self.settings.route_apps_to_devices = route_apps;
-                self.settings.game_direct = game_direct;
-                self.mark_dirty();
-                self.evaluate(false);
-            }
-            UiCommand::SetLatency { latency } => {
-                self.settings.latency = latency;
-                self.settings.learned_queue_ms = 0.0;
-                self.settings.learned_source_ms = 0.0;
-                self.mark_dirty();
-                if self.virtual_active {
-                    self.router.stop();
-                }
-                self.evaluate(false);
-            }
-            UiCommand::SetDuckingDisabled { disabled } => {
-                if !self.dry_run {
-                    system_integration::set_ducking_disabled(disabled);
-                }
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::DriverAction | UiCommand::BannerInstall => {
-                self.start_elevated_setup(true, false, driver_setup::cached_pack());
-            }
-            UiCommand::RepairAudio | UiCommand::BannerRepair => {
-                self.start_elevated_setup(false, true, None);
-            }
-            UiCommand::DismissSetupBanner => {
-                self.setup_banner = None;
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetAutostart { enabled } => {
-                self.settings.start_with_windows = enabled;
-                if !self.dry_run {
-                    system_integration::autostart_set(enabled);
-                }
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetStartMinimized { enabled } => {
-                self.settings.start_minimized = enabled;
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetShowOsd { enabled } => {
-                self.settings.show_osd = enabled;
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetRestoreVolumes { enabled } => {
-                self.settings.restore_volumes_on_exit = enabled;
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetTheme { theme } => {
-                self.settings.theme = theme;
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetLanguage { lang } | UiCommand::WizardLang { lang } => {
-                self.settings.language = lang;
-                loc::set_language(lang);
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::SetUpdateMode { mode } => {
-                self.settings.update_mode = mode;
-                self.mark_dirty();
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::UpdateAction => {
-                let st = self.updater.snapshot();
-                let wake = self.wake.clone();
-                let udirty = self.update_dirty.clone();
-                if st.available_version.is_some() {
-                    self.updater.install_async(move || {
-                        udirty.store(true, Ordering::Release);
-                        wake.wake();
-                    });
-                } else {
-                    self.updater.check_async(true, move || {
-                        udirty.store(true, Ordering::Release);
-                        wake.wake();
-                    });
-                }
-                self.push_event(ControllerEvent::StateChanged);
-            }
-            UiCommand::OpenWizard => {
-                self.push_event(ControllerEvent::OpenWizard);
-            }
-            UiCommand::TestOsd => {
-                self.push_event(ControllerEvent::Osd(OsdInfo {
-                    kind: OsdKind::Mix,
-                    title: loc::get("Target.Mix"),
-                    value_text: Self::format_mix_text(self.settings.mix),
-                    value: self.settings.mix,
-                    muted: false,
-                }));
-            }
-            UiCommand::RunDiag => {
-                if !self.diag_busy.swap(true, Ordering::AcqRel) {
-                    let busy = self.diag_busy.clone();
-                    let out = self.diag_text.clone();
-                    let done = self.diag_done.clone();
-                    let wake = self.wake.clone();
-                    std::thread::spawn(move || {
-                        let rep = crate::diagnostics::run(true, false);
-                        if let Ok(mut g) = out.lock() {
-                            *g = rep.text;
-                        }
-                        busy.store(false, Ordering::Release);
-                        done.store(true, Ordering::Release);
-                        wake.wake();
-                    });
-                    self.push_event(ControllerEvent::StateChanged);
-                }
-            }
-            UiCommand::OpenDataFolder => {
-                dialogs::shell_open(&log::data_dir().to_string_lossy(), None);
-            }
-            UiCommand::OpenUrl { url } => {
-                if url.starts_with("https://") {
-                    dialogs::shell_open(&url, None);
-                }
-            }
-            UiCommand::WizardFinish {
-                skip_driver,
-                output_id,
-                mode,
-                start_with_windows,
-                disable_ducking,
-            } => {
-                self.settings.first_run_done = true;
-                self.settings.output_device_id = output_id;
-                self.settings.output_chosen_by_user = self.settings.output_device_id.is_some();
-                self.settings.mode = mode;
-                self.settings.start_with_windows = start_with_windows;
-                if !self.dry_run {
-                    system_integration::autostart_set(start_with_windows);
-                    system_integration::set_ducking_disabled(disable_ducking);
-                }
-                self.save_now();
-                if !skip_driver && !driver_setup::cables_present() && !self.dry_run {
-                    self.start_elevated_setup(true, false, driver_setup::cached_pack());
-                } else {
-                    self.evaluate(true);
-                }
-                self.push_event(ControllerEvent::WizardClosed);
-                self.push_event(ControllerEvent::ShowMain);
+                self.knob_settings_changed();
             }
         }
     }
 
-    fn start_elevated_setup(&mut self, install: bool, repair: bool, pack: Option<PathBuf>) {
-        if self.dry_run || self.setup_busy.swap(true, Ordering::AcqRel) {
+    pub fn reset_hotkey(&mut self) {
+        self.cancel_capture();
+        let (vk, m) = SHORTCUT_DEFAULTS[0];
+        self.settings.knob_hotkey_key = vk;
+        self.settings.knob_hotkey_modifiers = m;
+        self.settings.knob_hotkey_custom = false; // DualMix picks the first default no other program is using
+        self.knob_settings_changed();
+    }
+
+    // ===================================================================== apps / rules
+
+    pub fn set_app_channel(&mut self, key: &str, channel: Option<Channel>) {
+        let rule = self.settings.apps.entry(key.to_string()).or_insert_with(AppRule::default);
+        rule.channel = channel;
+        self.rules_changed(true);
+    }
+
+    pub fn set_app_volume(&mut self, key: &str, volume: f64) {
+        let rule = self.settings.apps.entry(key.to_string()).or_insert_with(AppRule::default);
+        rule.volume = volume.clamp(0.0, 1.0);
+        self.rules_changed(false);
+    }
+
+    pub fn forget_app(&mut self, key: &str) {
+        if self.settings.apps.remove(key).is_some() {
+            self.rules_changed(true);
+        }
+    }
+
+    pub fn add_app_from_path(&mut self, path: &std::path::Path) {
+        let key = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        if key.is_empty() {
             return;
+        }
+        if !self.settings.apps.contains_key(&key) {
+            let mut r = AppRule::default();
+            r.display_name = Some(dualmix_audio::process_info::friendly_name(Some(&path.to_string_lossy()), &key));
+            r.exe_path = Some(path.to_string_lossy().into_owned());
+            self.settings.apps.insert(key, r);
+        }
+        self.rules_changed(true);
+    }
+
+    pub fn rules_changed(&mut self, raise_apps: bool) {
+        self.rules = Arc::new(RuleSet::from_settings(&self.settings));
+        self.rules_gen += 1;
+        self.push_params();
+        self.schedule_save();
+        if raise_apps {
+            self.apps_dirty = true;
+        }
+    }
+
+    pub fn rescan_now(&self) {
+        self.sessions.request_rescan();
+    }
+
+    // ===================================================================== engine
+
+    /// Called after any device/engine setting changed.
+    pub fn engine_settings_changed(&mut self, restart_router: bool) {
+        if restart_router {
+            self.router.stop();
+        }
+        self.configured_endpoints = false;
+        self.router_failures = 0;
+        self.evaluate();
+        self.schedule_save();
+    }
+
+    fn find_output(&self, render: &[DeviceInfo]) -> Option<DeviceInfo> {
+        let s = &self.settings;
+        let mut output = None;
+        if s.output_chosen_by_user {
+            output = render.iter().find(|d| Some(&d.id) == s.output_device_id.as_ref() && !d.is_vb_cable()).cloned();
+        }
+        let default_mm = s.defaults_backup.as_ref().and_then(|b| b.multimedia.clone()).or_else(|| devices::get_default_id(Role::Multimedia, Flow::Render));
+        if output.is_none() {
+            output = devices::find_preferred_output(render, default_mm.as_deref()).cloned();
+        }
+        if output.is_none() {
+            output = render.iter().find(|d| Some(&d.id) == s.output_device_id.as_ref() && !d.is_vb_cable()).cloned();
+        }
+        output
+    }
+
+    /// Looks at the devices and decides how to run: virtual devices when a cable and the real output are healthy,
+    /// otherwise per-app volumes with every Windows setting restored (fail-open).
+    pub fn evaluate(&mut self) {
+        if self.shutdown {
+            return;
+        }
+        self.devices_changed_at = None;
+        self.devices_gen += 1;
+        let mut render = devices::list_render();
+        let output = self.find_output(&render);
+        if let Some(o) = &output {
+            if Some(&o.id) != self.settings.output_device_id.as_ref() && !self.settings.output_chosen_by_user {
+                self.settings.output_device_id = Some(o.id.clone());
+                self.schedule_save();
+            }
+        }
+        self.output_name = output.as_ref().map(|o| o.name.clone());
+        self.output_format = output.as_ref().and_then(|o| devices::get_device_format(&o.id));
+        self.output_volume.attach(output.as_ref().map(|o| o.id.as_str()));
+
+        let probe = output.as_ref().and_then(|o| devices::probe_open(&o.id));
+        self.needs_repair = probe == Some(CLASS_NOT_REGISTERED);
+
+        let want_virtual = self.settings.mode == EngineMode::VirtualDevices;
+        let (mut game, mut chat) = devices::find_cables(&render);
+        let driver_present = chat.is_some() || driver_setup::cables_present();
+
+        if !self.dry_run && want_virtual && driver_present && output.is_some() && probe.is_none() && (!self.configured_endpoints || self.format_changed) {
+            self.format_changed = false;
+            self.configured_endpoints = true;
+            let result = driver_setup::configure(&self.settings, false, None);
+            if result.changed {
+                self.router.stop();
+                render = devices::list_render();
+                (game, chat) = devices::find_cables(&render);
+            }
+            let asked_recently = log::hours_since(self.settings.elevated_config_at.as_deref()).is_some_and(|h| h < 24.0);
+            if result.failed && !self.elevated_config_tried && !self.setup_busy && !asked_recently {
+                // Some endpoint settings need administrator rights: finish elevated (at most one request a day).
+                self.elevated_config_tried = true;
+                self.settings.elevated_config_at = Some(log::now_iso());
+                self.schedule_save();
+                log::info("Endpoint configuration needs elevation");
+                self.pending_setup = Some((false, false, None));
+            }
+        }
+
+        let chat_ok = chat.is_some();
+        self.virtual_cables = devices::find_buses(&render).len();
+        self.needs_driver = !chat_ok;
+        self.game_name = game.as_ref().map(|g| g.name.clone());
+        self.chat_name = chat.as_ref().map(|c| c.name.clone());
+
+        if want_virtual && chat_ok && output.is_some() && probe.is_none() && !self.router.blocked() {
+            let chat = chat.clone().unwrap();
+            self.settings.chat_device_id = Some(chat.id.clone());
+            self.settings.game_device_id = game.as_ref().map(|g| g.id.clone());
+            // "DualMix Game" stands in for the real output in the Windows volume interface while it is the default.
+            let proxy = if game.is_some() && !self.settings.game_direct && self.settings.set_windows_defaults { game.as_ref().map(|g| g.id.clone()) } else { None };
+            self.master_proxy.attach(proxy.as_deref());
+            self.chat_volume.attach(Some(&chat.id));
+            self.activate_virtual();
+        } else {
+            self.deactivate_virtual();
+        }
+
+        self.update_status(want_virtual, chat_ok, output.as_ref(), probe);
+        self.push_gains();
+        self.state_dirty = true;
+
+        if self.router.blocked() {
+            self.set_status(Severity::Error, loc::get("Status.Blocked.Title"), loc::get("Status.Blocked.Body"));
+            self.next_evaluate = now_ms() + 60_000;
+        }
+        if self.dry_run {
+            return;
+        }
+        let declined_long_ago = log::hours_since(self.settings.driver_setup_declined_at.as_deref()).is_none_or(|h| h > 12.0);
+        // A second cable was installed before from a purchased pack and is gone: put it back automatically.
+        if self.settings.first_run_done && want_virtual && chat_ok && game.is_none() && !self.settings.game_direct && !self.pack_tried && !self.setup_busy && probe.is_none() {
+            self.pack_tried = true;
+            if let Some(cached) = driver_setup::cached_pack() {
+                if declined_long_ago && self.pending_setup.is_none() {
+                    self.pending_setup = Some((false, false, Some(cached)));
+                }
+            }
+        }
+        // Install the driver / repair the audio service automatically, once per start (after the setup wizard).
+        if self.settings.first_run_done && !self.auto_setup_tried && !self.setup_busy && ((want_virtual && !chat_ok) || self.needs_repair) {
+            self.auto_setup_tried = true;
+            if declined_long_ago && self.pending_setup.is_none() {
+                self.pending_setup = Some((want_virtual && !chat_ok, self.needs_repair, None));
+            }
+        }
+    }
+
+    fn activate_virtual(&mut self) {
+        let was_active = self.virtual_active;
+        self.virtual_active = true;
+        self.dual = self.settings.game_device_id.is_some();
+        if !self.dry_run {
+            self.push_cable_volumes();
+        }
+        self.router.set_gains(self.gains());
+        // The mixer must be running before any audio is sent to the virtual devices.
+        let router_game = if self.game_via_bus() { self.settings.game_device_id.clone() } else { None };
+        let same = self.router.game_id() == router_game && self.router.chat_id() == self.settings.chat_device_id && self.router.output_id() == self.settings.output_device_id;
+        if !self.router.is_running() || !same {
+            self.start_router();
+            let deadline = Instant::now() + std::time::Duration::from_millis(1500);
+            while self.router.state() == RouterState::Starting && Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(15));
+            }
+        }
+        if !self.dry_run {
+            if self.settings.set_windows_defaults {
+                self.apply_windows_defaults();
+            } else {
+                self.restore_windows_defaults();
+            }
+            if !self.settings.route_apps_to_devices && !self.settings.routed_apps.is_empty() {
+                self.unroute_apps(500);
+            }
+        }
+        self.push_params();
+        if !was_active {
+            log::info(format!(
+                "Virtual devices active ({}) → {}",
+                if self.game_via_bus() { "Game + Chat" } else { "Chat; Game direct" },
+                self.output_name()
+            ));
+        }
+    }
+
+    fn deactivate_virtual(&mut self) {
+        let was_active = self.virtual_active;
+        self.virtual_active = false;
+        self.dual = false;
+        self.game_amp = math::taper(self.settings.game_volume);
+        self.chat_amp = math::taper(self.settings.chat_volume);
+        self.master_proxy.detach();
+        self.chat_volume.detach();
+        self.push_params();
+        // Give the audio back to the real device first; the mixer stops last, so nothing falls into silence.
+        if was_active || !self.settings.routed_apps.is_empty() {
+            self.unroute_apps(500);
+        }
+        self.restore_windows_defaults();
+        self.router.stop();
+        if was_active {
+            log::info("Virtual devices inactive (per-app volumes)");
+        }
+    }
+
+    fn start_router(&mut self) {
+        self.router.set_gains(self.gains());
+        let mut p = LatencyProfile::for_mode(self.settings.latency);
+        p.extra_queue_ms = self.settings.learned_queue_ms.clamp(0.0, 40.0);
+        p.extra_source_ms = self.settings.learned_source_ms.clamp(0.0, 20.0);
+        let game = if self.game_via_bus() { self.settings.game_device_id.clone() } else { None };
+        let (Some(chat), Some(out)) = (self.settings.chat_device_id.clone(), self.settings.output_device_id.clone()) else { return };
+        if let Err(e) = self.router.start(game.as_deref(), &chat, &out, p) {
+            log::error(format!("Router start failed | {e}"));
+        }
+    }
+
+    fn update_status(&mut self, want_virtual: bool, chat_ok: bool, output: Option<&DeviceInfo>, probe: Option<i32>) {
+        let (sev, title, msg) = if self.setup_busy {
+            (Severity::Info, loc::get("Status.SetupBusy.Title"), loc::get("Status.SetupBusy.Body"))
+        } else if output.is_none() {
+            (Severity::Error, loc::get("Status.NoOutput.Title"), loc::get("Status.NoOutput.Body"))
+        } else if probe == Some(CLASS_NOT_REGISTERED) {
+            (Severity::Error, loc::get("Status.AudioLost.Title"), loc::get("Status.CardNoPlay.Body"))
+        } else if let Some(p) = probe {
+            (Severity::Error, loc::get("Status.OutputUnusable.Title"), loc::fmt("Status.OutputUnusable.Body", &[&output.unwrap().name, &format!("{:08X}", p as u32)]))
+        } else if want_virtual && !chat_ok {
+            (Severity::Warning, loc::get("Status.NoDriver.Title"), loc::get("Status.NoDriver.Body"))
+        } else if !want_virtual {
+            (Severity::Info, loc::get("Status.PerAppMode.Title"), loc::fmt("Status.PerAppMode.Body", &[&output.unwrap().name]))
+        } else if self.game_via_bus() {
+            (Severity::Success, loc::get("Status.ReadyDual.Title"), loc::fmt("Status.ReadyDual.Body", &[&output.unwrap().name]))
+        } else {
+            (Severity::Success, loc::get("Status.ReadySingle.Title"), loc::fmt("Status.ReadySingle.Body", &[&output.unwrap().name]))
+        };
+        self.set_status(sev, title, msg);
+    }
+
+    fn set_status(&mut self, sev: Severity, title: String, message: String) {
+        self.severity = sev;
+        self.status_title = title;
+        self.status_message = message;
+        self.state_dirty = true;
+    }
+
+    /// Runs the elevated helper (UAC prompt) on a worker thread; the result arrives as `Ev::SetupDone`.
+    pub fn run_setup(&mut self, install: bool, repair: bool, pack: Option<PathBuf>) {
+        if self.setup_busy {
+            return;
+        }
+        self.setup_busy = true;
+        self.update_status(true, true, None, None);
+        if repair {
+            // Restarting the audio service kills every stream: put Windows back to normal first.
+            self.deactivate_virtual();
+        } else {
+            // The endpoints are about to be reconfigured: release them.
+            self.router.stop();
         }
         let Ok(exe) = std::env::current_exe() else {
-            self.setup_busy.store(false, Ordering::Release);
+            self.setup_busy = false;
             return;
         };
-        let out = self.setup_result.clone();
-        let wake = self.wake.clone();
+        let ib = Arc::clone(&self.inbox);
         std::thread::spawn(move || {
-            let res = driver_setup::run_elevated_blocking(&exe, install, repair, pack.as_deref());
-            if let Ok(mut g) = out.lock() {
-                *g = Some((res, install));
-            }
-            wake.wake();
+            let _com = dualmix_audio::com::ComGuard::mta();
+            let r = driver_setup::run_elevated_blocking(&exe, install, repair, pack.as_deref());
+            ib.post(Ev::SetupDone(r));
         });
-        self.push_event(ControllerEvent::StateChanged);
     }
 
-    pub fn is_dark(&self) -> bool {
-        dialogs::is_dark_theme(self.settings.theme)
-    }
-
-    pub fn tray_status(&self) -> TrayStatus {
-        let mix_label = Self::format_mix_text(self.settings.mix);
-        let tip = format!(
-            "DualMix — {} · {}",
-            Self::target_label(self.settings.knob_target),
-            mix_label
-        );
-        TrayStatus {
-            tooltip: tip,
-            mix_label,
-            target: self.settings.knob_target,
-            autostart: self.settings.start_with_windows,
-            dark: self.is_dark(),
-        }
-    }
-
-    pub fn build_live_patch(&self) -> LivePatch {
-        let snap = self.sessions.snapshot();
-        let app_peaks = snap
-            .iter()
-            .map(|a| (a.key.clone(), a.peak, (a.relative_volume * 100.0).round() as i32, a.active))
-            .collect();
-        let (engine_chip, engine_text, latency_text, format_text, tech, qual) = self.engine_texts();
-        LivePatch {
-            mix_percent: (self.settings.mix * 100.0).round() as i32,
-            mix_text: Self::format_mix_text(self.settings.mix),
-            game_level_text: if self.settings.game_muted {
-                loc::get("Common.Muted")
-            } else {
-                math::percent(self.settings.game_volume)
-            },
-            chat_level_text: if self.settings.chat_muted {
-                loc::get("Common.Muted")
-            } else {
-                math::percent(self.settings.chat_volume)
-            },
-            game_volume_percent: (self.settings.game_volume * 100.0).round() as i32,
-            chat_volume_percent: (self.settings.chat_volume * 100.0).round() as i32,
-            game_muted: self.settings.game_muted,
-            chat_muted: self.settings.chat_muted,
-            output_volume_available: self.endpoint_vol.is_available(),
-            output_volume_percent: (self.endpoint_vol.level() * 100.0).round() as i32,
-            output_muted: self.endpoint_vol.muted(),
-            game_peak: if self.virtual_active { self.router.game_peak() } else { self.sessions.game_peak() },
-            chat_peak: if self.virtual_active { self.router.chat_peak() } else { self.sessions.chat_peak() },
-            output_peak: self.router.output_peak(),
-            app_peaks,
-            router_running: self.router.is_running(),
-            router_idle: self.router.suspended(),
-            engine_chip,
-            engine_text,
-            latency_text,
-            format_text,
-            technical_details: tech,
-            quality_summary: qual,
-            knob_target: self.settings.knob_target,
-            knob_target_text: Self::target_label(self.settings.knob_target),
-            last_key_seen: self.last_key_seen.lock().map(|g| g.clone()).unwrap_or_default(),
-            keyboard_status: self.keyboard_status_text(),
-        }
-    }
-
-    pub fn build_ui_state(&self) -> UiState {
-        let auto_lbl = self
-            .active_output
-            .as_ref()
-            .filter(|_| !self.settings.output_chosen_by_user)
-            .map(|d| loc::fmt("Audio.AutoOption", &[&d.name]))
-            .unwrap_or_else(|| loc::get("Audio.AutoOptionEmpty"));
-        let mut choices = vec![DeviceChoice {
-            id: None,
-            label: auto_lbl,
-        }];
-        for d in &self.render_cache {
-            if !d.is_vb_cable() {
-                choices.push(DeviceChoice {
-                    id: Some(d.id.clone()),
-                    label: d.name.clone(),
-                });
+    fn on_setup_done(&mut self, r: SetupResult) {
+        self.setup_busy = false;
+        self.settings.driver_setup_declined_at = if r.declined { Some(log::now_iso()) } else { None };
+        self.schedule_save();
+        self.configured_endpoints = false;
+        self.router_failures = 0;
+        self.setup_info = Some(if r.declined {
+            SetupInfo { severity: Severity::Warning, title: loc::get("Audio.SetupInfo.DeclinedTitle"), message: loc::get("Audio.SetupInfo.DeclinedBody") }
+        } else {
+            let failed = !r.ok || r.pack_rejected;
+            SetupInfo {
+                severity: if failed { Severity::Error } else if r.reboot_recommended { Severity::Warning } else { Severity::Success },
+                title: if failed {
+                    loc::get("Audio.SetupInfo.FailedTitle")
+                } else if r.reboot_recommended {
+                    loc::get("Audio.SetupInfo.RebootTitle")
+                } else {
+                    loc::get("Audio.SetupInfo.DoneTitle")
+                },
+                message: if r.message.trim().is_empty() { loc::get("Audio.SetupInfo.VerifiedBody") } else { r.message.clone() },
             }
-        }
+        });
+        // Give Windows a moment to publish new endpoints / restart its engine.
+        self.evaluate_at = Some(now_ms() + 1500);
+        self.state_dirty = true;
+    }
 
-        let live = self.build_live_patch();
-        let snap = self.sessions.snapshot();
-        let mut apps: Vec<UiAppRow> = Vec::with_capacity(snap.len() + 1);
-        for a in snap.iter() {
-            let initial = a
-                .display_name
-                .chars()
-                .next()
-                .map(|c| c.to_uppercase().to_string())
-                .unwrap_or_else(|| "?".to_string());
-            let auto_ch = Self::channel_label(a.auto_channel);
-            let subtitle = if a.is_system_sounds {
-                loc::get("Apps.SystemSounds")
-            } else if a.is_explicit {
-                a.devices.clone()
-            } else {
-                format!("{} ({auto_ch})", loc::get("Apps.Sub.Auto"))
+    // ---- Windows defaults
+
+    /// Playback default: the real output (or "DualMix Game"). Communications default: "DualMix Chat".
+    fn apply_windows_defaults(&mut self) {
+        let (Some(chat_id), Some(out_id)) = (self.settings.chat_device_id.clone(), self.settings.output_device_id.clone()) else { return };
+        let playback = if self.game_via_bus() { self.settings.game_device_id.clone().unwrap_or(out_id.clone()) } else { out_id.clone() };
+        if self.settings.defaults_backup.is_none() {
+            let mut b = DefaultDevicesBackup {
+                console: devices::get_default_id(Role::Console, Flow::Render),
+                multimedia: devices::get_default_id(Role::Multimedia, Flow::Render),
+                communications: devices::get_default_id(Role::Communications, Flow::Render),
             };
-            apps.push(UiAppRow {
-                key: a.key.clone(),
-                display_name: a.display_name.clone(),
-                initial,
-                subtitle,
-                hint: a.devices.clone(),
-                channel: a.channel,
-                is_explicit: a.is_explicit,
-                is_system: a.is_system_sounds,
-                active: a.active,
-                fixed_output: a.fixed_output,
-                volume_percent: (a.relative_volume * 100.0).round() as i32,
-                peak: a.peak,
-            });
+            // Never back up our own virtual devices as "the real default".
+            let ours = |id: &Option<String>| id.as_ref().is_some_and(|i| Some(i) == self.settings.game_device_id.as_ref() || Some(i) == self.settings.chat_device_id.as_ref());
+            if ours(&b.console) {
+                b.console = Some(out_id.clone());
+            }
+            if ours(&b.multimedia) {
+                b.multimedia = Some(out_id.clone());
+            }
+            if ours(&b.communications) {
+                b.communications = Some(out_id.clone());
+            }
+            self.settings.defaults_backup = Some(b);
+            SettingsStore::save(&self.settings);
         }
-        if !apps.iter().any(|r| r.key == SYSTEM_SOUNDS_KEY) {
-            apps.push(UiAppRow {
-                key: SYSTEM_SOUNDS_KEY.to_string(),
-                display_name: loc::get("Apps.SystemSounds"),
-                initial: "S".to_string(),
-                subtitle: loc::get("Apps.SystemSounds"),
-                hint: String::new(),
-                channel: self.settings.system_sounds_channel,
-                is_explicit: true,
-                is_system: true,
-                active: false,
-                fixed_output: false,
-                volume_percent: 100,
-                peak: 0.0,
-            });
+        let mut changed = false;
+        if devices::get_default_id(Role::Multimedia, Flow::Render).as_deref() != Some(&playback) || devices::get_default_id(Role::Console, Flow::Render).as_deref() != Some(&playback) {
+            devices::set_default(&playback, Role::Console);
+            devices::set_default(&playback, Role::Multimedia);
+            changed = true;
         }
+        if devices::get_default_id(Role::Communications, Flow::Render).as_deref() != Some(&chat_id) {
+            devices::set_default(&chat_id, Role::Communications);
+            changed = true;
+        }
+        if changed {
+            log::info(format!("Windows defaults: playback → {}, communications → {}", devices::name_of(Some(&playback)), devices::name_of(Some(&chat_id))));
+        }
+    }
 
-        let (sev, st_title, st_msg, needs_drv, needs_rep) = self.status_summary();
-        let (upd_title, upd_text, upd_btn, upd_busy) = self.updater.ui_summary();
-        let (game_line, chat_line) = self.device_lines();
-
-        UiState {
-            mode: if self.mode_wizard { "wizard" } else { "main" }.to_string(),
-            wizard_step: self.wizard_step,
-            active_tab: self.active_tab,
-            dark: self.is_dark(),
-            lang: if loc::current() == loc::Lang::It { "it" } else { "en" }.to_string(),
-            version: self.version.clone(),
-            data_dir: log::data_dir().to_string_lossy().into_owned(),
-            severity: sev,
-            status_title: st_title,
-            status_message: st_msg,
-            needs_driver: needs_drv,
-            needs_repair: needs_rep,
-            setup_busy: self.setup_busy.load(Ordering::Acquire),
-            setup_banner: self.setup_banner.clone(),
-            engine_mode: self.settings.mode,
-            virtual_active: self.virtual_active,
-            router_running: live.router_running,
-            router_idle: live.router_idle,
-            virtual_cables: self.virtual_cables,
-            game_via_bus: self.game_bus.is_some() && !self.settings.game_direct,
-            engine_chip: live.engine_chip,
-            engine_text: live.engine_text,
-            output_name: self
-                .active_output
-                .as_ref()
-                .map(|d| d.name.clone())
-                .unwrap_or_else(|| loc::get("Common.None")),
-            format_text: live.format_text,
-            latency_text: live.latency_text,
-            game_device_line: game_line,
-            chat_device_line: chat_line,
-            game_device_name: self
-                .game_bus
-                .as_ref()
-                .map(|d| d.name.clone())
-                .unwrap_or_else(|| loc::get("Common.None")),
-            chat_device_name: self
-                .chat_bus
-                .as_ref()
-                .map(|d| d.name.clone())
-                .unwrap_or_else(|| loc::get("Common.None")),
-            technical_details: live.technical_details,
-            quality_summary: live.quality_summary,
-            output_choices: choices,
-            selected_output_id: if self.settings.output_chosen_by_user {
-                self.settings.output_device_id.clone()
+    fn restore_windows_defaults(&mut self) {
+        let Some(b) = self.settings.defaults_backup.clone() else { return };
+        // Fall back to the real output DualMix was using when a saved device is gone.
+        let out = self.settings.output_device_id.clone();
+        let pick = |saved: Option<String>| -> Option<String> {
+            if devices::is_active(saved.as_deref()) {
+                saved
+            } else if devices::is_active(out.as_deref()) {
+                out.clone()
             } else {
                 None
-            },
-            set_windows_defaults: self.settings.set_windows_defaults,
-            route_apps_to_devices: self.settings.route_apps_to_devices,
-            game_direct: self.settings.game_direct,
-            defaults_text: if self.windows_defaults_applied {
-                let real = self
-                    .active_output
-                    .as_ref()
-                    .map(|d| d.name.as_str())
-                    .unwrap_or("Output");
-                if self.game_bus.is_some() && !self.settings.game_direct {
-                    loc::get("Audio.DefaultsDual")
-                } else {
-                    loc::fmt("Audio.DefaultsSingle", &[real])
-                }
-            } else {
-                loc::get("Common.None")
-            },
-            latency: self.settings.latency,
-            no_ducking: system_integration::is_ducking_disabled(),
-            vb_cables_present: self.virtual_cables > 0,
-            mix_percent: live.mix_percent,
-            mix_text: live.mix_text,
-            game_level_text: live.game_level_text,
-            chat_level_text: live.chat_level_text,
-            game_volume_percent: live.game_volume_percent,
-            chat_volume_percent: live.chat_volume_percent,
-            game_muted: live.game_muted,
-            chat_muted: live.chat_muted,
-            output_volume_available: live.output_volume_available,
-            output_volume_percent: live.output_volume_percent,
-            output_muted: live.output_muted,
-            game_peak: live.game_peak,
-            chat_peak: live.chat_peak,
-            output_peak: live.output_peak,
-            apps,
-            knob_target: self.settings.knob_target,
-            knob_target_text: live.knob_target_text,
-            knob_hotkey_text: knob::chord_name(self.settings.knob_hotkey_key, self.settings.knob_hotkey_modifiers),
-            knob_cycle: self.settings.knob_cycle.clone(),
-            knob_cycle_summary: self
-                .settings
-                .knob_cycle
-                .iter()
-                .map(|t| Self::target_label(*t))
-                .collect::<Vec<_>>()
-                .join(" → "),
-            knob_double_press: self.settings.knob_double_press_cycles,
-            knob_ctrl_press: self.settings.knob_ctrl_press_cycles,
-            knob_ctrl_alt: self.settings.knob_ctrl_alternate,
-            knob_enabled: self.settings.knob_enabled,
-            knob_invert: self.settings.knob_invert,
-            knob_mix_press_mutes: self.settings.knob_mix_press_mutes,
-            knob_start_function: self.settings.knob_start_function,
-            knob_step_percent: (self.settings.knob_step * 100.0).round() as i32,
-            key_mix_game_name: knob::key_name(self.settings.key_mix_game),
-            key_mix_chat_name: knob::key_name(self.settings.key_mix_chat),
-            key_mix_reset_name: knob::key_name(self.settings.key_mix_reset),
-            capturing_target: self.capturing_target.lock().ok().and_then(|g| g.clone()),
-            capture_prompt: self.capture_prompt.lock().ok().and_then(|g| g.clone()),
-            keyboard_status: live.keyboard_status,
-            last_key_seen: live.last_key_seen,
-            autostart: self.settings.start_with_windows,
-            start_minimized: self.settings.start_minimized,
-            show_osd: self.settings.show_osd,
-            restore_volumes_on_exit: self.settings.restore_volumes_on_exit,
-            theme: self.settings.theme,
-            language_pref: self.settings.language,
-            update_mode: self.settings.update_mode,
-            update_title: upd_title,
-            update_text: upd_text,
-            update_button_text: upd_btn,
-            update_busy: upd_busy,
-            diag_text: self.diag_text.lock().map(|g| g.clone()).unwrap_or_default(),
-            diag_busy: self.diag_busy.load(Ordering::Acquire),
-        }
-    }
-
-    pub fn apply_picked_app(&mut self, path: PathBuf) {
-        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-            let key = stem.to_ascii_lowercase();
-            let r = self.settings.apps.entry(key).or_insert_with(AppRule::default);
-            r.display_name = Some(stem.to_string());
-            r.exe_path = Some(path.to_string_lossy().into_owned());
-            if r.channel.is_none() {
-                r.channel = Some(Channel::Chat);
             }
-            self.rebuild_rules();
-            self.mark_dirty();
-            self.queue_event(ControllerEvent::StateChanged);
-        }
-    }
-
-    fn status_summary(&self) -> (StatusSeverity, String, String, bool, bool) {
-        if self.router.state() == RouterState::Error {
-            return (
-                StatusSeverity::Error,
-                loc::get("Status.VirtualPaused.Title"),
-                self.router
-                    .last_error()
-                    .unwrap_or_else(|| loc::get("Status.VirtualPaused.ErrBody")),
-                false,
-                true,
-            );
-        }
-        if self.active_output.is_none() {
-            return (
-                StatusSeverity::Error,
-                loc::get("Status.NoOutput.Title"),
-                loc::get("Status.NoOutput.Body"),
-                false,
-                false,
-            );
-        }
-        if self.settings.mode == EngineMode::VirtualDevices && self.virtual_cables == 0 {
-            return (
-                StatusSeverity::Warning,
-                loc::get("Status.NoDriver.Title"),
-                loc::get("Status.NoDriver.Body"),
-                true,
-                false,
-            );
-        }
-        let out_name = self
-            .active_output
-            .as_ref()
-            .map(|d| d.name.clone())
-            .unwrap_or_else(|| loc::get("Common.NoOutput"));
-        if self.virtual_active && self.router.suspended() {
-            return (
-                StatusSeverity::Info,
-                loc::get("Status.VirtualPaused.Title"),
-                loc::get("Status.VirtualPaused.IdleBody"),
-                false,
-                false,
-            );
-        }
-        if self.virtual_active {
-            if self.game_bus.is_some() && !self.settings.game_direct {
-                return (
-                    StatusSeverity::Success,
-                    loc::get("Status.ReadyDual.Title"),
-                    loc::fmt("Status.ReadyDual.Body", &[&out_name]),
-                    false,
-                    false,
-                );
-            }
-            return (
-                StatusSeverity::Success,
-                loc::get("Status.ReadySingle.Title"),
-                loc::fmt("Status.ReadySingle.Body", &[&out_name]),
-                false,
-                false,
-            );
-        }
-        (
-            StatusSeverity::Info,
-            loc::get("Status.PerAppMode.Title"),
-            loc::fmt("Status.PerAppMode.Body", &[&out_name]),
-            false,
-            false,
-        )
-    }
-
-    fn engine_texts(&self) -> (String, String, String, String, String, String) {
-        if self.virtual_active {
-            let lat = format!("{:.1} ms", self.router.latency_ms());
-            let chip = if self.router.suspended() {
-                loc::get("Mixer.ChipActiveIdle")
-            } else {
-                loc::fmt("Mixer.ChipActiveLat", &[&lat])
-            };
-            let fmt = self
-                .router
-                .output_format()
-                .map(|f| format::describe(&f))
-                .unwrap_or_else(|| "-".to_string());
-            let out_name = self
-                .active_output
-                .as_ref()
-                .map(|d| d.name.as_str())
-                .unwrap_or("-");
-            let game_line = if let Some(ref g) = self.game_bus {
-                if !self.settings.game_direct {
-                    loc::fmt(
-                        "Status.Tech.GameBus",
-                        &[&g.name, &loc::signed1(self.router.game_drift_ppm())],
-                    )
-                } else {
-                    loc::get("Status.Tech.GameDirect")
-                }
-            } else {
-                loc::get("Status.Tech.GameDirect")
-            };
-            let chat_name = self.chat_bus.as_ref().map(|d| d.name.as_str()).unwrap_or("-");
-            let idle_str = if self.router.suspended() { loc::get("Status.Tech.Idle") } else { String::new() };
-            let nort_str = if !self.router.real_time_scheduling() { loc::get("Status.Tech.NoRt") } else { String::new() };
-            let tech = loc::fmt(
-                "Status.Tech.Summary",
-                &[
-                    out_name,
-                    &game_line,
-                    chat_name,
-                    &loc::signed1(self.router.chat_drift_ppm()),
-                    &self.router.underruns().to_string(),
-                    "",
-                    &idle_str,
-                    &nort_str,
-                ],
-            );
-            let qual = loc::fmt("Audio.QualitySummaryFmt", &[&fmt, &lat]);
-            let text = self.router.last_error().unwrap_or_else(|| chip.clone());
-            (chip, text, lat, fmt, tech, qual)
-        } else {
-            let out_name = self
-                .active_output
-                .as_ref()
-                .map(|d| d.name.clone())
-                .unwrap_or_else(|| loc::get("Common.NoOutput"));
-            (
-                loc::get("Status.PerAppMode.Title"),
-                loc::fmt("Status.PerAppMode.Body", &[&out_name]),
-                "0 ms".to_string(),
-                "-".to_string(),
-                loc::get("Status.Tech.NotRunning"),
-                loc::get("Status.PerAppMode.Title"),
-            )
-        }
-    }
-
-    fn device_lines(&self) -> (String, String) {
-        let out_name = self
-            .active_output
-            .as_ref()
-            .map(|d| d.name.as_str())
-            .unwrap_or("-");
-        let g = if self.virtual_active {
-            match self.game_bus.as_ref() {
-                Some(gb) if !self.settings.game_direct => loc::fmt("Mixer.ChannelDevice.Virtual", &[&gb.name]),
-                _ => loc::fmt("Mixer.ChannelDevice.Direct", &[out_name]),
-            }
-        } else {
-            loc::fmt("Mixer.ChannelDevice.PerApp", &[out_name])
         };
-        let c = if self.virtual_active {
-            let cname = self.chat_bus.as_ref().map(|d| d.name.as_str()).unwrap_or("-");
-            loc::fmt("Mixer.ChannelDevice.Virtual", &[cname])
-        } else {
-            loc::fmt("Mixer.ChannelDevice.PerApp", &[out_name])
-        };
-        (g, c)
+        for (id, role) in [(pick(b.console), Role::Console), (pick(b.multimedia), Role::Multimedia), (pick(b.communications), Role::Communications)] {
+            if let Some(id) = id {
+                if devices::get_default_id(role, Flow::Render).as_deref() != Some(&id) {
+                    devices::set_default(&id, role);
+                }
+            }
+        }
+        self.settings.defaults_backup = None;
+        SettingsStore::save(&self.settings);
+        log::info("Windows default devices restored");
     }
 
-    fn keyboard_status_text(&self) -> String {
-        let failed = self.keyboard.failed_hotkeys();
-        let active = self.keyboard.active_hotkeys();
-        if failed.is_empty() {
-            loc::fmt("Knob.Status.AllActive", &[&active.to_string()])
-        } else {
-            let total = active + failed.len();
-            loc::fmt(
-                "Knob.Status.SomeFailed",
-                &[&active.to_string(), &total.to_string(), &failed.join(", ")],
-            )
+    /// Resets the per-app devices DualMix set (waits at most `wait_ms` for the session engine).
+    fn unroute_apps(&mut self, wait_ms: u64) {
+        let keys = self.settings.routed_apps.clone();
+        let rx = self.sessions.unroute_all(keys.clone());
+        if rx.recv_timeout(std::time::Duration::from_millis(wait_ms)).unwrap_or(false) {
+            self.settings.routed_apps.retain(|k| !keys.iter().any(|x| x.eq_ignore_ascii_case(k)));
+            self.schedule_save();
         }
     }
 
-    pub fn format_mix_text(mix: f64) -> String {
-        let pct = (mix * 100.0).round() as i32;
-        if pct.abs() < 2 {
-            loc::get("Common.Balanced")
-        } else if pct < 0 {
-            format!("{} +{}%", loc::get("Common.Game"), -pct)
-        } else {
-            format!("{} +{}%", loc::get("Common.Chat"), pct)
+    fn build_params(&self) -> SessionParams {
+        let s = &self.settings;
+        let dual = self.virtual_active && self.dual;
+        let via_bus = self.game_via_bus();
+        // With "DualMix Game" as the Windows default, Game apps land there by themselves and "Direct" apps must be
+        // sent to the real output explicitly; otherwise nothing needs routing except Chat.
+        let game_is_default = via_bus && s.set_windows_defaults;
+        SessionParams {
+            gains: self.gains(),
+            rules: Arc::clone(&self.rules),
+            rules_gen: self.rules_gen,
+            route_devices: self.virtual_active && s.route_apps_to_devices && !self.dry_run && !self.shutdown,
+            game_route_id: if via_bus && !game_is_default { s.game_device_id.clone() } else { None },
+            chat_route_id: if self.virtual_active { s.chat_device_id.clone() } else { None },
+            direct_route_id: if game_is_default { s.output_device_id.clone() } else { None },
+            game_bus_id: if dual { s.game_device_id.clone() } else { None },
+            chat_bus_id: if self.virtual_active { s.chat_device_id.clone() } else { None },
+            meters_enabled: self.meters_enabled,
         }
     }
 
-    pub fn target_label(t: KnobTarget) -> String {
-        match t {
-            KnobTarget::Mix => loc::get("Target.Mix"),
-            KnobTarget::Volume => loc::get("Target.Volume"),
-            KnobTarget::Game => loc::get("Target.Game"),
-            KnobTarget::Chat => loc::get("Target.Chat"),
+    fn push_params(&mut self) {
+        let p = self.build_params();
+        self.sessions.update(p);
+    }
+
+    // ===================================================================== periodic work (every 250 ms)
+
+    pub fn tick(&mut self) {
+        if self.shutdown {
+            return;
+        }
+        let now = now_ms();
+
+        // Engine events (new apps, adopted volumes, routed apps)
+        let mut rules_changed = false;
+        while let Some(ev) = self.sessions.try_dequeue_event() {
+            match ev {
+                EngineEvent::AppDiscovered { key, display_name, exe_path, volume } => {
+                    match self.settings.apps.get_mut(&key) {
+                        None => {
+                            let mut r = AppRule::default();
+                            r.volume = volume;
+                            r.display_name = Some(display_name);
+                            r.exe_path = exe_path;
+                            r.last_seen = Some(log::now_iso());
+                            self.settings.apps.insert(key, r);
+                            rules_changed = true;
+                        }
+                        Some(r) => {
+                            r.display_name = Some(display_name);
+                            if exe_path.is_some() {
+                                r.exe_path = exe_path;
+                            }
+                            r.last_seen = Some(log::now_iso());
+                        }
+                    }
+                }
+                EngineEvent::AppVolumeAdopted { key, volume } => {
+                    self.settings.apps.entry(key).or_insert_with(AppRule::default).volume = volume;
+                    rules_changed = true;
+                }
+                EngineEvent::AppRouted { key } => {
+                    if !self.settings.routed_apps.iter().any(|k| k.eq_ignore_ascii_case(&key)) {
+                        self.settings.routed_apps.push(key);
+                        SettingsStore::save(&self.settings); // persist right away: needed for crash recovery
+                    }
+                }
+            }
+        }
+        if rules_changed {
+            self.rules_changed(true);
+        }
+
+        if let Some(at) = self.evaluate_at {
+            if now >= at {
+                self.evaluate_at = None;
+                self.evaluate();
+            }
+        }
+
+        // Device changes (debounced)
+        if let Some(at) = self.devices_changed_at {
+            if now - at > 800 && !self.setup_busy {
+                log::info("Audio devices changed: re-evaluating");
+                self.evaluate();
+            }
+        }
+
+        // Someone moved the Windows defaults (e.g. a headset was plugged in): the output must stay where it is.
+        if self.defaults_drifted && !self.setup_busy {
+            self.defaults_drifted = false;
+            if self.virtual_active && self.settings.set_windows_defaults {
+                self.apply_windows_defaults();
+            }
+        }
+
+        // Router supervision
+        if self.virtual_active && !self.setup_busy {
+            let st = self.router.state();
+            let hung = st == RouterState::Starting && now - self.router.started_at() > 6000;
+            if st == RouterState::Error || hung || (!self.router.is_running() && st != RouterState::Starting) {
+                self.router_failures += 1;
+                let reason = if hung { loc::get("Status.RouterHungReason") } else { self.router.last_error().unwrap_or_else(|| loc::get("Status.RouterStoppedReason")) };
+                log::warn(format!("Router failure #{}: {reason}", self.router_failures));
+                if hung || self.router.last_error_code() == CLASS_NOT_REGISTERED || self.router_failures >= 3 {
+                    // Fail-open: give the apps back to the real device while we wait.
+                    if hung {
+                        log::error(format!("Router start is hanging at '{}'", self.router.stage()));
+                    }
+                    self.deactivate_virtual();
+                    if self.router.blocked() {
+                        self.evaluate();
+                    } else {
+                        self.set_status(Severity::Warning, loc::get("Status.VirtualPaused.Title"), loc::fmt("Status.VirtualPaused.Problem", &[&reason]));
+                        self.next_evaluate = now + 60_000i64.min(5000i64 << (self.router_failures - 1).min(4));
+                    }
+                } else {
+                    self.start_router();
+                }
+            } else if st == RouterState::Running && now - self.router.started_at() > 30_000 {
+                self.router_failures = 0;
+            }
+        } else if self.next_evaluate > 0 && now >= self.next_evaluate && !self.setup_busy {
+            self.next_evaluate = 0;
+            self.evaluate();
+        }
+
+        // Dropouts are worth knowing about (at most one line every 10 s), with their cause
+        if self.router_running() {
+            let u = self.router.underruns();
+            if u < self.underruns_seen {
+                self.underruns_seen = u;
+            }
+            if u > self.underruns_seen && now >= self.next_underrun_log {
+                log::warn(format!("Router: {} dropout(s) (total {u}: {})", u - self.underruns_seen, self.router.dropout_detail()));
+                self.underruns_seen = u;
+                self.next_underrun_log = now + 10_000;
+            }
+            if let Some(note) = self.router.take_note() {
+                log::info(format!("Router: {note}"));
+                // Remember what this PC needs, so the next start begins with it.
+                let (q, src) = (self.router.learned_queue_ms(), self.router.learned_source_ms());
+                if q > self.settings.learned_queue_ms + 0.5 || src > self.settings.learned_source_ms + 0.5 {
+                    self.settings.learned_queue_ms = self.settings.learned_queue_ms.max(round_to(q, 1));
+                    self.settings.learned_source_ms = self.settings.learned_source_ms.max(round_to(src, 1));
+                    self.schedule_save();
+                }
+            }
+        }
+
+        // Health line in the log every 10 minutes while audio is flowing
+        if self.router_running() && !self.router.suspended() && now >= self.next_stats_log {
+            self.next_stats_log = now + 600_000;
+            log::info(format!(
+                "Router ok: clock correction chat {:+.1} ppm{}, underruns {}, added latency {:.0} ms",
+                self.router.chat_drift_ppm(),
+                if self.game_via_bus() { format!(", game {:+.1} ppm", self.router.game_drift_ppm()) } else { String::new() },
+                self.router.underruns(),
+                self.router.latency_ms()
+            ));
+        }
+
+        // Elevated setup requested by Evaluate (runs outside of it, like the C# BeginInvoke)
+        if let Some((install, repair, pack)) = self.pending_setup.take() {
+            if !self.setup_busy {
+                self.run_setup(install, repair, pack);
+            }
+        }
+
+        // Debounced save
+        if let Some(due) = self.save_due {
+            if Instant::now() >= due {
+                self.save_due = None;
+                SettingsStore::save(&self.settings);
+            }
         }
     }
 
-    fn channel_label(c: Channel) -> String {
-        match c {
-            Channel::Game => loc::get("Common.Game"),
-            Channel::Chat => loc::get("Common.Chat"),
-            Channel::Ignore => loc::get("Common.Direct"),
-        }
+    pub fn schedule_save(&mut self) {
+        self.save_due = Some(Instant::now() + std::time::Duration::from_millis(1500));
     }
+
+    pub fn save_now(&mut self) {
+        self.save_due = None;
+        SettingsStore::save(&self.settings);
+    }
+
+    pub fn uptime_s(&self) -> u64 {
+        self.started.elapsed().as_secs()
+    }
+
+    pub fn tray_tooltip(&self) -> String {
+        let problem = if matches!(self.severity, Severity::Error | Severity::Warning) { " · ⚠" } else { "" };
+        let t = format!("DualMix · Game {} · Chat {}{problem}", self.game_level_text(), self.chat_level_text());
+        t.chars().take(63).collect()
+    }
+}
+
+pub fn time_hms() -> String {
+    let t = log::local_now();
+    format!("{:02}:{:02}:{:02}", t.hour, t.minute, t.second)
 }
