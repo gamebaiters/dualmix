@@ -1,0 +1,11 @@
+[package]
+name = "dualmix-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dualmix-core.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true

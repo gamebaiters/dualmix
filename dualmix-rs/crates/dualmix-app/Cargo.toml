@@ -1,0 +1,15 @@
+[package]
+name = "dualmix-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "DualMix"
+path = "src/main.rs"
+
+[dependencies]
+dualmix-core.workspace = true
+dualmix-audio.workspace = true
+dualmix-input.workspace = true
+dualmix-ui.workspace = true
