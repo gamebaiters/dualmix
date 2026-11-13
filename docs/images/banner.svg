@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300" role="img">
+  <defs>
+    <linearGradient id="bannerBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#121723"/>
+      <stop offset="55%" stop-color="#171d2c"/>
+      <stop offset="100%" stop-color="#10141f"/>
+    </linearGradient>
+    <radialGradient id="glowGame" cx="18%" cy="45%" r="38%">
+      <stop offset="0%" stop-color="#ff6b35" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#ff6b35" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowChat" cx="85%" cy="35%" r="42%">
+      <stop offset="0%" stop-color="#40beff" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#40beff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="logoBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22283a"/>
+      <stop offset="100%" stop-color="#0d1018"/>
+    </linearGradient>
+    <linearGradient id="gameGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffa040"/>
+      <stop offset="100%" stop-color="#ff5436"/>
+    </linearGradient>
+    <linearGradient id="chatGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#40beff"/>
+      <stop offset="100%" stop-color="#566eff"/>
+    </linearGradient>
+    <linearGradient id="mixLine" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff7838"/>
+      <stop offset="50%" stop-color="#7c879b"/>
+      <stop offset="100%" stop-color="#40beff"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="1198" height="298" rx="18" fill="url(#bannerBg)" stroke="#2b3448" stroke-width="1.5"/>
+  <rect x="1" y="1" width="1198" height="298" rx="18" fill="url(#glowGame)"/>
+  <rect x="1" y="1" width="1198" height="298" rx="18" fill="url(#glowChat)"/>
+  <g>
+    <rect x="69.52" y="63.52" width="172.96" height="172.96" rx="39.78" fill="url(#logoBg)" stroke="#ffffff" stroke-opacity="0.16" stroke-width="2.21"/>
+    <path d="M 120.74 190.78 A 49.86 49.86 0 0 1 148.20 106.27" fill="none" stroke="url(#gameGrad)" stroke-width="21.71" stroke-linecap="round"/>
+    <path d="M 163.80 106.27 A 49.86 49.86 0 0 1 191.26 190.78" fill="none" stroke="url(#chatGrad)" stroke-width="21.71" stroke-linecap="round"/>
+    <rect x="148.82" y="88.36" width="14.35" height="58.88" rx="7.18" fill="#ffffff"/>
+  </g>
+  <text x="290" y="108" fill="#ffffff" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="-0.5">DualMix</text>
+  <rect x="518" y="74" width="68" height="28" rx="14" fill="#40beff" fill-opacity="0.16" stroke="#40beff" stroke-opacity="0.45" stroke-width="1"/>
+  <text x="552" y="93" fill="#7dd3fc" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" text-anchor="middle">v2.2.0</text>
+  <text x="290" y="150" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="21">Mixer Game / Chat per Windows 11 — bilancia giochi e chat vocale al volo</text>
+  <rect x="290" y="182" width="184" height="32" rx="16" fill="#ff7838" fill-opacity="0.14" stroke="#ff7838" stroke-opacity="0.35" stroke-width="1"/><text x="382" y="203" fill="#ff8a4c" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">WASAPI 32-bit float</text><rect x="486" y="182" width="208" height="32" rx="16" fill="#40beff" fill-opacity="0.14" stroke="#40beff" stroke-opacity="0.35" stroke-width="1"/><text x="590" y="203" fill="#a8d8ff" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">Sinc Resampler 160-tap</text><rect x="706" y="182" width="200" height="32" rx="16" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.20" stroke-width="1"/><text x="806" y="203" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">Rotella + Scorciatoie</text><rect x="918" y="182" width="176" height="32" rx="16" fill="#4ade80" fill-opacity="0.12" stroke="#4ade80" stroke-opacity="0.32" stroke-width="1"/><text x="1006" y="203" fill="#86efac" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">Auto-Update GitHub</text>
+  <!-- Mini live balance visual at bottom right -->
+  <text x="290" y="252" fill="#ffa040" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="700">GAME</text>
+  <rect x="342" y="244" width="480" height="7" rx="3.5" fill="url(#mixLine)"/>
+  <rect x="581" y="238" width="2" height="19" rx="1" fill="#94a3b8"/>
+  <circle cx="582" cy="247.5" r="8.5" fill="#ffffff" stroke="#121723" stroke-width="2.5"/>
+  <text x="838" y="252" fill="#40beff" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="700">CHAT</text>
+
+</svg>

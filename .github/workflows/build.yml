@@ -1,0 +1,62 @@
+# Auto-builder (CI): runs on every push to main and on pull requests.
+# Verifies the .NET 10 Windows build, PowerShell setup scripts, NSIS installer packaging,
+# and uploads the resulting artifacts for testing.
+name: build
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install NSIS and zip
+        run: sudo apt-get update -q && sudo apt-get install -y -q nsis zip
+
+      - name: Check PowerShell scripts syntax
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem packaging/setup/*.ps1; Get-Item install.ps1)
+          foreach ($f in $files) {
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$($f.Name): $($_.Message)" }
+              exit 1
+            }
+            Write-Host "OK: $($f.Name)"
+          }
+
+      - name: Build package and installer
+        run: |
+          tools/build-release.sh --notes "CI build (${GITHUB_SHA::7})"
+          (cd out/release && sha256sum -c SHA256SUMS.txt)
+          python3 -c "import json; d = json.load(open('out/release/version.json')); assert d['product'] == 'DualMix' and len(d['sha256']) == 64"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DualMix-win-x64-ci
+          path: |
+            out/release/*
+            packaging/LEGGIMI.txt
+          retention-days: 14

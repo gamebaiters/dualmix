@@ -1,0 +1,16 @@
+name: Richiesta funzionalità / Feature request
+description: Proponi un miglioramento o una nuova funzione per DualMix
+title: "[Idea]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Cosa vorresti aggiungere o migliorare?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Contesto d'uso
+      description: Come la useresti nella pratica?

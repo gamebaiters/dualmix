@@ -1,0 +1,33 @@
+name: Segnala un problema / Bug report
+description: Segnala un bug o un comportamento anomalo di DualMix
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Versione di DualMix
+      description: Visibile in Generale → Informazioni (es. 2.2.0)
+      placeholder: "2.2.0"
+    validations:
+      required: true
+  - type: input
+    id: audio
+    attributes:
+      label: Scheda audio / Cavi virtuali
+      description: Es. Sound Blaster AE-5 Plus, VB-CABLE A+B o modalità Volume per app
+    validations:
+      required: false
+  - type: textarea
+    id: description
+    attributes:
+      label: Cosa succede?
+      description: Descrivi il problema e come riprodurlo.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log o diagnostica (opzionale)
+      description: Incolla le righe utili da `%APPDATA%\DualMix\dualmix.log` o `diag.txt` (`Generale → Diagnostica`).
+      render: text
