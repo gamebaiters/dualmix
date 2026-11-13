@@ -6,130 +6,183 @@
 <title>DualMix</title>
 <style>
 :root {
+  color-scheme: dark;
   --bg: #202020;
-  --nav-bg: rgba(32, 32, 32, 0.85);
-  --surface: rgba(255, 255, 255, 0.055);
-  --surface-hover: rgba(255, 255, 255, 0.08);
-  --surface-border: rgba(255, 255, 255, 0.085);
+  --shell-bg: rgba(32, 32, 32, 0.56);
+  --frame-bg: rgba(40, 40, 40, 0.44);
+  --frame-border: rgba(255, 255, 255, 0.065);
+  --surface: rgba(255, 255, 255, 0.052);
+  --surface-hover: rgba(255, 255, 255, 0.085);
+  --surface-border: rgba(255, 255, 255, 0.08);
   --control-bg: rgba(255, 255, 255, 0.06);
-  --control-border: rgba(255, 255, 255, 0.10);
-  --subtle-bg: rgba(255, 255, 255, 0.06);
-  --text: #ffffff;
+  --control-border: rgba(255, 255, 255, 0.11);
+  --subtle-bg: rgba(255, 255, 255, 0.065);
+  --nav-active: rgba(255, 255, 255, 0.075);
+  --text: #FFFFFF;
   --text2: rgba(255, 255, 255, 0.72);
-  --text3: rgba(255, 255, 255, 0.50);
+  --text3: rgba(255, 255, 255, 0.48);
   --accent: #60CDFF;
   --accent-text: #000000;
   --accent-link: #60CDFF;
   --game: #FF9A52;
-  --game-soft: rgba(255, 154, 82, 0.20);
+  --game-soft: rgba(255, 154, 82, 0.18);
   --chat: #5CC8FF;
-  --chat-soft: rgba(92, 200, 255, 0.20);
-  --meter-track: rgba(255, 255, 255, 0.12);
+  --chat-soft: rgba(92, 200, 255, 0.18);
+  --meter-track: rgba(255, 255, 255, 0.13);
   --success: #6CCB5F;
-  --success-bg: rgba(108, 203, 95, 0.14);
+  --success-bg: rgba(108, 203, 95, 0.13);
   --warn: #FCE100;
-  --warn-bg: rgba(252, 225, 0, 0.13);
+  --warn-bg: rgba(252, 225, 0, 0.12);
   --err: #FF99A4;
-  --err-bg: rgba(255, 153, 164, 0.14);
+  --err-bg: rgba(255, 153, 164, 0.13);
   --info: #60CDFF;
-  --info-bg: rgba(96, 205, 255, 0.13);
-  --thumb-bg: #2D2D2D;
+  --info-bg: rgba(96, 205, 255, 0.12);
+  --thumb-outer: #3B3B3B;
+  --thumb-border: rgba(255, 255, 255, 0.16);
   --dropdown-bg: #2C2C2C;
 }
 html[data-theme="light"] {
+  color-scheme: light;
   --bg: #F3F3F3;
-  --nav-bg: rgba(243, 243, 243, 0.90);
-  --surface: rgba(255, 255, 255, 0.82);
-  --surface-hover: rgba(255, 255, 255, 0.95);
-  --surface-border: rgba(0, 0, 0, 0.075);
-  --control-bg: rgba(255, 255, 255, 0.78);
-  --control-border: rgba(0, 0, 0, 0.10);
-  --subtle-bg: rgba(0, 0, 0, 0.055);
+  --shell-bg: rgba(243, 243, 243, 0.56);
+  --frame-bg: rgba(255, 255, 255, 0.48);
+  --frame-border: rgba(0, 0, 0, 0.06);
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-hover: rgba(255, 255, 255, 0.96);
+  --surface-border: rgba(0, 0, 0, 0.068);
+  --control-bg: rgba(255, 255, 255, 0.76);
+  --control-border: rgba(0, 0, 0, 0.095);
+  --subtle-bg: rgba(0, 0, 0, 0.045);
+  --nav-active: rgba(0, 0, 0, 0.05);
   --text: #1A1A1A;
   --text2: rgba(0, 0, 0, 0.62);
-  --text3: rgba(0, 0, 0, 0.45);
+  --text3: rgba(0, 0, 0, 0.44);
   --accent: #005FB8;
-  --accent-text: #ffffff;
+  --accent-text: #FFFFFF;
   --accent-link: #005FB8;
   --game: #C24E00;
-  --game-soft: rgba(194, 78, 0, 0.16);
+  --game-soft: rgba(194, 78, 0, 0.14);
   --chat: #0067C0;
-  --chat-soft: rgba(0, 103, 192, 0.16);
-  --meter-track: rgba(0, 0, 0, 0.14);
+  --chat-soft: rgba(0, 103, 192, 0.14);
+  --meter-track: rgba(0, 0, 0, 0.13);
   --success: #0F7B0F;
   --success-bg: rgba(15, 123, 15, 0.10);
   --warn: #9D5D00;
-  --warn-bg: rgba(157, 93, 0, 0.10);
+  --warn-bg: rgba(255, 244, 206, 0.85);
   --err: #C42B1C;
-  --err-bg: rgba(196, 43, 28, 0.10);
+  --err-bg: rgba(253, 231, 233, 0.86);
   --info: #005FB8;
-  --info-bg: rgba(0, 95, 184, 0.10);
-  --thumb-bg: #FFFFFF;
+  --info-bg: rgba(0, 95, 184, 0.09);
+  --thumb-outer: #FFFFFF;
+  --thumb-border: rgba(0, 0, 0, 0.18);
   --dropdown-bg: #FFFFFF;
+}
+html.snapshot-opaque {
+  --shell-bg: var(--bg);
+}
+html.snapshot-opaque[data-theme="light"] {
+  --frame-bg: #F9F9F9;
+}
+html.snapshot-opaque[data-theme="dark"] {
+  --frame-bg: #272727;
 }
 * { box-sizing: border-box; user-select: none; }
 html, body {
   margin: 0; padding: 0; height: 100%; width: 100%;
-  background: var(--bg); color: var(--text);
+  background: var(--shell-bg); color: var(--text);
   font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   font-size: 14px; line-height: 1.4; overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 .mono { font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; }
 svg { display: block; flex-shrink: 0; }
 .hidden { display: none !important; }
 
-/* Main layout */
-.app-shell { display: flex; height: 100vh; width: 100vw; }
-.nav {
-  width: 232px; flex-shrink: 0; padding: 12px 8px;
-  display: flex; flex-direction: column; justify-content: space-between;
-  border-right: 1px solid var(--surface-border);
-  background: var(--nav-bg);
+/* Integrated Fluent 2 TitleBar */
+.titlebar {
+  height: 36px; width: 100%; display: flex; align-items: center; justify-content: space-between;
+  padding-left: 14px; flex-shrink: 0; -webkit-app-region: drag;
 }
-.nav-group { display: flex; flex-direction: column; gap: 4px; }
+.tb-left { display: flex; align-items: center; gap: 10px; pointer-events: none; }
+.tb-title { font-size: 12px; font-weight: 400; color: var(--text); letter-spacing: 0.01em; }
+.tb-actions { display: flex; height: 34px; align-items: stretch; -webkit-app-region: no-drag; }
+.tb-btn {
+  width: 46px; height: 34px; border: none; background: transparent; color: var(--text);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background 0.1s, color 0.1s; padding: 0;
+}
+.tb-btn:hover { background: var(--subtle-bg); }
+.tb-close:hover { background: #C42B1C; color: #FFFFFF; }
+
+/* Main shell + NavigationView */
+.root-col { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+.app-shell { display: flex; flex: 1; min-height: 0; width: 100%; }
+.nav {
+  width: 218px; flex-shrink: 0; padding: 2px 6px 10px 6px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  background: transparent; transition: width 0.14s ease;
+}
+.nav.collapsed { width: 52px; }
+.nav-top { display: flex; flex-direction: column; gap: 2px; }
+.nav-group { display: flex; flex-direction: column; gap: 3px; }
+.nav-ham {
+  width: 40px; height: 34px; border-radius: 5px; border: none; background: transparent;
+  color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  margin-bottom: 4px; transition: background 0.12s;
+}
+.nav-ham:hover { background: var(--subtle-bg); }
 .nav-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 9px 12px; border-radius: 6px; border: none;
+  display: flex; align-items: center; gap: 12px; height: 36px;
+  padding: 0 11px; border-radius: 5px; border: none;
   background: transparent; color: var(--text); cursor: pointer;
-  font-size: 14px; text-align: left; position: relative;
+  font-size: 13.5px; text-align: left; position: relative; white-space: nowrap; overflow: hidden;
   font-family: inherit; transition: background 0.12s;
 }
 .nav-item:hover { background: var(--subtle-bg); }
-.nav-item.active { background: var(--subtle-bg); font-weight: 600; }
+.nav-item.active { background: var(--nav-active); font-weight: 500; }
 .nav-item.active::before {
-  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+  content: ''; position: absolute; left: 0; top: 9px; bottom: 9px;
   width: 3px; border-radius: 2px; background: var(--accent);
+}
+.nav.collapsed .nav-item { padding: 0; justify-content: center; }
+.nav.collapsed .nav-label { display: none; }
+.nav-sep { height: 1px; background: var(--surface-border); margin: 4px 6px 6px 6px; }
+
+.content-frame {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--frame-bg);
+  border-top: 1px solid var(--frame-border);
+  border-left: 1px solid var(--frame-border);
+  border-top-left-radius: 8px;
 }
 .content-scroll {
   flex: 1; overflow-y: auto; overflow-x: hidden;
-  padding: 20px 40px 32px 40px;
+  padding: 14px 34px 18px 34px;
 }
-.page { max-width: 1000px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
-.page-title { font-size: 28px; font-weight: 600; margin: 0; line-height: 1.2; }
-.page-sub { font-size: 14px; color: var(--text2); margin: 4px 0 0 0; }
-.section-header { font-size: 14px; font-weight: 600; margin: 24px 0 8px 0; color: var(--text); }
+.page { max-width: 980px; margin: 0 auto; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 10px; }
+.page-title { font-size: 28px; font-weight: 600; margin: 0; line-height: 1.2; letter-spacing: -0.01em; }
+.page-sub { font-size: 13.5px; color: var(--text2); margin: 3px 0 0 0; }
+.section-header { font-size: 14px; font-weight: 600; margin: 12px 0 6px 0; color: var(--text); }
 
 /* Cards & surfaces */
 .card {
   background: var(--surface); border: 1px solid var(--surface-border);
-  border-radius: 8px; padding: 16px 20px; margin-bottom: 4px;
+  border-radius: 8px; padding: 12px 18px; margin-bottom: 4px;
 }
-.card-hero { padding: 20px 24px; }
-.card-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-}
+.card-hero { padding: 14px 20px; }
+.card-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .card-left { display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1; }
 .card-title { font-size: 14px; font-weight: 500; color: var(--text); }
 .card-desc { font-size: 12px; color: var(--text2); margin-top: 2px; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 
 /* Chip & badge */
 .chip {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 5px 12px; border-radius: 14px;
   background: var(--control-bg); border: 1px solid var(--control-border);
-  font-size: 12px; color: var(--text2); white-space: nowrap;
+  font-size: 12px; color: var(--text2); white-space: nowrap; margin-top: 2px;
 }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .dot-success { background: var(--success); }
@@ -138,7 +191,7 @@ svg { display: block; flex-shrink: 0; }
 .dot-info { background: var(--info); }
 
 .badge {
-  width: 40px; height: 40px; border-radius: 50%;
+  width: 38px; height: 38px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .badge-sm { width: 32px; height: 32px; }
@@ -148,7 +201,7 @@ svg { display: block; flex-shrink: 0; }
 
 /* Status banner */
 .banner {
-  border-radius: 8px; padding: 12px 16px; margin-bottom: 12px;
+  border-radius: 8px; padding: 11px 15px; margin-bottom: 10px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   border: 1px solid var(--surface-border);
 }
@@ -163,19 +216,20 @@ svg { display: block; flex-shrink: 0; }
 
 /* Buttons & inputs */
 .btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  height: 32px; padding: 0 14px; border-radius: 5px;
-  border: 1px solid var(--control-border); background: var(--control-bg);
-  color: var(--text); font-family: inherit; font-size: 13px; font-weight: 500;
-  cursor: pointer; transition: background 0.1s; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 31px; padding: 0 13px; border-radius: 5px;
+  border: 1px solid var(--control-border); border-bottom-color: rgba(0, 0, 0, 0.16);
+  background: var(--control-bg); color: var(--text); font-family: inherit;
+  font-size: 13px; font-weight: 400; cursor: pointer; transition: background 0.1s; white-space: nowrap;
 }
+html:not([data-theme="light"]) .btn { border-bottom-color: rgba(255, 255, 255, 0.14); }
 .btn:hover:not(:disabled) { background: var(--surface-hover); }
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn-primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.06); background: var(--accent); }
 .btn-subtle { background: transparent; border-color: transparent; }
 .btn-subtle:hover:not(:disabled) { background: var(--subtle-bg); }
-.btn-icon { width: 36px; height: 36px; padding: 0; }
+.btn-icon { width: 34px; height: 34px; padding: 0; }
 .btn-icon.muted { color: var(--err); }
 
 select.fluent-select, input.fluent-input {
@@ -183,6 +237,7 @@ select.fluent-select, input.fluent-input {
   border: 1px solid var(--control-border); background: var(--dropdown-bg);
   color: var(--text); font-family: inherit; font-size: 13px; outline: none;
 }
+select.fluent-select option { background: var(--dropdown-bg); color: var(--text); }
 input.fluent-input { width: 100%; padding-left: 32px; }
 input.fluent-input:focus, select.fluent-select:focus { border-color: var(--accent); }
 
@@ -199,12 +254,8 @@ input.fluent-input:focus, select.fluent-select:focus { border-color: var(--accen
   width: 12px; height: 12px; border-radius: 50%;
   background: var(--text2); transition: all 0.15s;
 }
-.switch input:checked + .switch-track {
-  background: var(--accent); border-color: var(--accent);
-}
-.switch input:checked + .switch-track::after {
-  transform: translateX(19px); background: var(--accent-text);
-}
+.switch input:checked + .switch-track { background: var(--accent); border-color: var(--accent); }
+.switch input:checked + .switch-track::after { transform: translateX(19px); background: var(--accent-text); }
 .switch input:disabled + .switch-track { opacity: 0.4; cursor: default; }
 
 /* Segmented control */
@@ -220,44 +271,61 @@ input.fluent-input:focus, select.fluent-select:focus { border-color: var(--accen
 .seg-btn:hover { background: var(--subtle-bg); }
 .seg-btn.active { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 
-/* Sliders */
+/* Fluent 2 Sliders with accent progress fill + concentric WPF-UI thumb */
 .slider-wrap { display: flex; align-items: center; gap: 10px; width: 100%; }
 input[type="range"].fluent-range {
   -webkit-appearance: none; appearance: none; width: 100%; height: 24px;
-  background: transparent; cursor: pointer; margin: 0;
+  background: transparent; cursor: pointer; margin: 0; outline: none;
 }
 input[type="range"].fluent-range::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 2px; background: var(--meter-track);
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--pct, 50%),
+    var(--meter-track) var(--pct, 50%),
+    var(--meter-track) 100%
+  );
+}
+input[type="range"].fluent-range:disabled::-webkit-slider-runnable-track {
+  background: var(--meter-track);
 }
 input[type="range"].fluent-range::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 18px; height: 18px; border-radius: 50%; margin-top: -7px;
-  background: var(--thumb-bg); border: 1px solid var(--control-border);
-  box-shadow: 0 0 0 5px var(--accent) inset;
+  background: var(--accent); border: 1px solid var(--thumb-border);
+  box-shadow: inset 0 0 0 4px var(--thumb-outer), 0 1px 3px rgba(0, 0, 0, 0.22);
   transition: box-shadow 0.1s;
 }
-input[type="range"].fluent-range:hover::-webkit-slider-thumb {
-  box-shadow: 0 0 0 6px var(--accent) inset;
+input[type="range"].fluent-range:hover:not(:disabled)::-webkit-slider-thumb {
+  box-shadow: inset 0 0 0 3px var(--thumb-outer), 0 1px 4px rgba(0, 0, 0, 0.28);
 }
 
-/* Balance slider */
-.balance-box { position: relative; flex: 1; height: 32px; display: flex; align-items: center; margin: 0 16px; }
+/* ChatMix Balance Slider (matches WPF-UI Theme.xaml BalanceThumb 22px + 6px track) */
+.balance-box { position: relative; flex: 1; height: 32px; display: flex; align-items: center; margin: 0 14px; }
 .balance-track {
   position: absolute; left: 10px; right: 10px; height: 6px; border-radius: 3px;
-  background: linear-gradient(90deg, var(--game) 0%, rgba(138,138,138,0.5) 50%, var(--chat) 100%);
+  background: linear-gradient(90deg, #E88338 0%, rgba(138, 138, 138, 0.34) 50%, #3E9FFF 100%);
   pointer-events: none;
 }
 .balance-center {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 2px; height: 14px; border-radius: 1px; background: var(--text3); pointer-events: none;
+  width: 2px; height: 14px; border-radius: 1px; background: var(--text3); pointer-events: none; opacity: 0.7;
 }
 input[type="range"].balance-range { position: relative; z-index: 2; }
-input[type="range"].balance-range::-webkit-slider-runnable-track { background: transparent; height: 6px; }
-input[type="range"].balance-range::-webkit-slider-thumb { width: 22px; height: 22px; margin-top: -8px; }
+input[type="range"].balance-range::-webkit-slider-runnable-track { background: transparent !important; height: 6px; }
+input[type="range"].balance-range::-webkit-slider-thumb {
+  width: 22px; height: 22px; margin-top: -8px;
+  background: var(--accent); border: 1px solid var(--thumb-border);
+  box-shadow: inset 0 0 0 4.5px var(--thumb-outer), 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+input[type="range"].balance-range:hover::-webkit-slider-thumb {
+  box-shadow: inset 0 0 0 3.5px var(--thumb-outer), 0 2px 6px rgba(0, 0, 0, 0.32);
+}
 
 /* Peak meter */
 .meter-track {
-  height: 4px; border-radius: 2px; background: var(--meter-track); overflow: hidden; margin-top: 10px;
+  height: 3.5px; border-radius: 2px; background: var(--meter-track); overflow: hidden; margin-top: 8px;
 }
 .meter-fill {
   height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0);
@@ -269,7 +337,7 @@ input[type="range"].balance-range::-webkit-slider-thumb { width: 22px; height: 2
 
 /* Expander */
 .expander-head { cursor: pointer; }
-.expander-body { margin-top: 12px; padding-left: 36px; border-top: 1px solid var(--surface-border); padding-top: 12px; }
+.expander-body { margin-top: 12px; padding-left: 14px; border-top: 1px solid var(--surface-border); padding-top: 12px; }
 
 /* Checkboxes */
 .chk-row { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
@@ -287,8 +355,8 @@ input[type="range"].balance-range::-webkit-slider-thumb { width: 22px; height: 2
 }
 
 /* Wizard */
-.wiz-shell { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
-.wiz-body { flex: 1; overflow-y: auto; padding: 20px 32px 16px 32px; }
+.wiz-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
+.wiz-body { flex: 1; overflow-y: auto; padding: 14px 32px 16px 32px; }
 .wiz-footer {
   border-top: 1px solid var(--surface-border); padding: 14px 24px;
   display: flex; align-items: center; justify-content: space-between;
@@ -314,7 +382,25 @@ let showInactive = false;
 let expandCycle = false;
 let expandKeys = false;
 let expandSignal = true;
+let navCollapsed = false;
+let isMaximized = false;
 let meters = { game: 0, chat: 0, out: 0 };
+
+function setRangePct(el) {
+  if (!el) return;
+  const min = Number(el.min || 0);
+  const max = Number(el.max || 100);
+  const val = Number(el.value || 0);
+  const pct = max > min ? ((val - min) * 100 / (max - min)) : 0;
+  el.style.setProperty('--pct', Math.max(0, Math.min(100, pct)) + '%');
+}
+
+function clearDragLocks() {
+  if (Object.keys(dragLocks).length > 0) dragLocks = {};
+}
+window.addEventListener('pointerup', clearDragLocks);
+window.addEventListener('pointercancel', clearDragLocks);
+window.addEventListener('blur', clearDragLocks);
 
 function post(obj) {
   if (window.chrome && window.chrome.webview) {
@@ -359,8 +445,29 @@ function svg(name, size=18) {
     err: '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
     info: '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M12 11v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="8" r="1" fill="currentColor"/>',
     chevron: '<path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
+    hamburger: '<path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+    download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>',
+    wrench: '<path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" fill="none"/>',
+    tbmin: '<path d="M7 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+    tbmax: '<rect x="7" y="7" width="10" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/>',
+    tbrestore: '<rect x="6" y="8" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M9 8V6.5A1.5 1.5 0 0110.5 5h6A1.5 1.5 0 0118 6.5v6A1.5 1.5 0 0116.5 14H15" stroke="currentColor" stroke-width="1.5" fill="none"/>',
+    tbclose: '<path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
   };
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24">${p[name] || ''}</svg>`;
+}
+
+function renderTitleBar(title, allowMax) {
+  return `<header class="titlebar" ${allowMax ? 'ondblclick="if(!event.target.closest(\'.tb-actions\'))post({cmd:\'windowToggleMaximize\'})"' : ''}>
+    <div class="tb-left">
+      <img src="${APP_ICON_URI}" width="16" height="16" alt="">
+      <span class="tb-title">${esc(title)}</span>
+    </div>
+    <div class="tb-actions">
+      <button class="tb-btn" tabindex="-1" onclick="post({cmd:'windowMinimize'})" title="—">${svg('tbmin', 14)}</button>
+      ${allowMax ? `<button class="tb-btn" tabindex="-1" onclick="post({cmd:'windowToggleMaximize'})" title="${isMaximized ? 'Restore' : 'Maximize'}">${svg(isMaximized ? 'tbrestore' : 'tbmax', 14)}</button>` : ''}
+      <button class="tb-btn tb-close" tabindex="-1" onclick="post({cmd:'hideWindow'})" title="✕">${svg('tbclose', 14)}</button>
+    </div>
+  </header>`;
 }
 
 function renderBanner(showSuccess) {
@@ -377,8 +484,8 @@ function renderBanner(showSuccess) {
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
-      ${S.needsRepair && !S.setupBusy ? `<button class="btn" onclick="post({cmd:'bannerRepair'})">${esc(T('Banner.Repair'))}</button>` : ''}
-      ${S.needsDriver && !S.setupBusy && S.engineMode === 'VirtualDevices' ? `<button class="btn btn-primary" onclick="post({cmd:'bannerInstall'})">${esc(T('Banner.InstallDriver'))}</button>` : ''}
+      ${S.needsRepair && !S.setupBusy ? `<button class="btn" onclick="post({cmd:'bannerRepair'})">${svg('wrench', 15)}${esc(T('Banner.Repair'))}</button>` : ''}
+      ${S.needsDriver && !S.setupBusy && S.engineMode === 'VirtualDevices' ? `<button class="btn btn-primary" onclick="post({cmd:'bannerInstall'})">${svg('download', 15)}${esc(T('Banner.InstallDriver'))}</button>` : ''}
     </div>
   </div>`;
 }
@@ -400,7 +507,7 @@ function renderMixer() {
     </div>
     ${renderBanner(false)}
     <div class="card card-hero">
-      <div class="card-row" style="margin-bottom:18px">
+      <div class="card-row" style="margin-bottom:14px">
         <span style="font-size:20px;font-weight:600">ChatMix</span>
         <span id="mx-text" style="font-size:13px;color:var(--text2)">${esc(S.mixText)}</span>
       </div>
@@ -429,7 +536,7 @@ function renderMixer() {
           <div class="badge badge-chat">${svg('chat', 20)}</div>
         </div>
       </div>
-      <div style="display:flex;justify-content:center;gap:8px;margin-top:16px">
+      <div style="display:flex;justify-content:center;gap:8px;margin-top:12px">
         <button class="btn" onclick="post({cmd:'setMix',percent:-100})" title="${esc(T('Mixer.AllGameTip'))}">${esc(T('Mixer.AllGame'))}</button>
         <button class="btn" onclick="post({cmd:'resetMix'})" title="${esc(T('Mixer.BalancedTip'))}">${esc(T('Mixer.Balanced'))}</button>
         <button class="btn" onclick="post({cmd:'setMix',percent:100})" title="${esc(T('Mixer.AllChatTip'))}">${esc(T('Mixer.AllChat'))}</button>
@@ -451,9 +558,9 @@ function renderMixer() {
           </button>
         </div>
         <div class="slider-wrap" style="margin-top:14px">
-          <input id="sl-gvol" class="fluent-range" type="range" min="0" max="100" value="${S.gameVolumePercent}"
+          <input id="sl-gvol" class="fluent-range" type="range" min="0" max="100" value="${S.gameVolumePercent}" style="--pct:${S.gameVolumePercent}%"
             onmousedown="dragLocks.gvol=1" onmouseup="delete dragLocks.gvol"
-            oninput="document.getElementById('tx-gvol').textContent=this.value+'%';post({cmd:'setGameVolume',percent:Number(this.value)})">
+            oninput="setRangePct(this);document.getElementById('tx-gvol').textContent=this.value+'%';post({cmd:'setGameVolume',percent:Number(this.value)})">
           <span id="tx-gvol" style="width:42px;text-align:right">${S.gameVolumePercent}%</span>
         </div>
         <div class="meter-track"><div id="mt-game" class="meter-fill meter-game" style="transform:scaleX(${meters.game})"></div></div>
@@ -474,9 +581,9 @@ function renderMixer() {
           </button>
         </div>
         <div class="slider-wrap" style="margin-top:14px">
-          <input id="sl-cvol" class="fluent-range" type="range" min="0" max="100" value="${S.chatVolumePercent}"
+          <input id="sl-cvol" class="fluent-range" type="range" min="0" max="100" value="${S.chatVolumePercent}" style="--pct:${S.chatVolumePercent}%"
             onmousedown="dragLocks.cvol=1" onmouseup="delete dragLocks.cvol"
-            oninput="document.getElementById('tx-cvol').textContent=this.value+'%';post({cmd:'setChatVolume',percent:Number(this.value)})">
+            oninput="setRangePct(this);document.getElementById('tx-cvol').textContent=this.value+'%';post({cmd:'setChatVolume',percent:Number(this.value)})">
           <span id="tx-cvol" style="width:42px;text-align:right">${S.chatVolumePercent}%</span>
         </div>
         <div class="meter-track"><div id="mt-chat" class="meter-fill meter-chat" style="transform:scaleX(${meters.chat})"></div></div>
@@ -500,21 +607,21 @@ function renderMixer() {
             onclick="post({cmd:'setOutputMuted',muted:${!S.outputMuted}})" title="${esc(T('Mixer.MuteOutputTip'))}">
             ${svg(S.outputMuted ? 'mute' : 'speaker', 18)}
           </button>
-          <input id="sl-ovol" class="fluent-range" type="range" min="0" max="100" value="${S.outputVolumePercent}"
+          <input id="sl-ovol" class="fluent-range" type="range" min="0" max="100" value="${S.outputVolumePercent}" style="--pct:${S.outputVolumePercent}%"
             ${S.outputVolumeAvailable?'':'disabled'} title="${esc(T('Mixer.MasterVolumeTip'))}"
             onmousedown="dragLocks.ovol=1" onmouseup="delete dragLocks.ovol"
-            oninput="document.getElementById('tx-ovol').textContent=this.value+'%';post({cmd:'setOutputVolume',percent:Number(this.value)})">
+            oninput="setRangePct(this);document.getElementById('tx-ovol').textContent=this.value+'%';post({cmd:'setOutputVolume',percent:Number(this.value)})">
           <span id="tx-ovol" style="width:42px;text-align:right">${S.outputVolumePercent}%</span>
         </div>
       </div>
     </div>
 
-    <div class="card" style="margin-top:12px;padding:12px 20px">
+    <div class="card" style="margin-top:10px;padding:10px 18px">
       <div class="card-row">
         <div class="card-left">
           ${svg('keyboard', 18)}
           <div style="font-size:13px;color:var(--text2)">
-            ${esc(T('Mixer.KnobPrefix'))}<strong style="color:var(--text)">${esc(S.knobTargetText)}</strong>${esc(T('Mixer.KnobHintMid'))}<strong style="color:var(--text)">${esc(S.knobHotkeyText)}</strong>
+            ${esc(T('Mixer.KnobPrefix'))} <strong style="color:var(--text)">${esc(S.knobTargetText)}</strong>${esc(T('Mixer.KnobHintMid'))} <strong style="color:var(--text)">${esc(S.knobHotkeyText)}</strong>
           </div>
         </div>
         <button class="btn btn-subtle" onclick="post({cmd:'setTab',tab:2})">${esc(T('Mixer.KnobSettings'))}</button>
@@ -576,9 +683,9 @@ function renderApps() {
           ${a.isExplicit ? `<button class="btn btn-subtle btn-icon" style="width:32px;height:32px" onclick="post({cmd:'resetAppAuto',key:${JSON.stringify(a.key)}})" title="${esc(T('Apps.AutoResetTip'))}">${svg('reset', 16)}</button>` : ''}
         </div>
         <div class="slider-wrap">
-          <input class="fluent-range" type="range" min="0" max="100" value="${a.volumePercent}"
+          <input class="fluent-range" type="range" min="0" max="100" value="${a.volumePercent}" style="--pct:${a.volumePercent}%"
             onmousedown="dragLocks['app:'+${JSON.stringify(a.key)}]=1" onmouseup="delete dragLocks['app:'+${JSON.stringify(a.key)}]"
-            oninput="this.nextElementSibling.textContent=this.value+'%';post({cmd:'setAppVolume',key:${JSON.stringify(a.key)},percent:Number(this.value)})">
+            oninput="setRangePct(this);this.nextElementSibling.textContent=this.value+'%';post({cmd:'setAppVolume',key:${JSON.stringify(a.key)},percent:Number(this.value)})">
           <span style="width:38px;text-align:right;font-size:13px">${a.volumePercent}%</span>
         </div>
       </div>`;
@@ -708,8 +815,8 @@ function renderKnob() {
     <div class="card card-row">
       <div><div class="card-title">${esc(T('Knob.Step'))}</div><div class="card-desc">${esc(T('Knob.StepDesc'))}</div></div>
       <div class="slider-wrap" style="width:230px">
-        <input class="fluent-range" type="range" min="1" max="10" step="1" value="${S.knobStepPercent}"
-          oninput="this.nextElementSibling.textContent=this.value+'%';post({cmd:'setKnobStep',percent:Number(this.value)})">
+        <input class="fluent-range" type="range" min="1" max="10" step="1" value="${S.knobStepPercent}" style="--pct:${Math.round((S.knobStepPercent - 1) * 100 / 9)}%"
+          oninput="setRangePct(this);this.nextElementSibling.textContent=this.value+'%';post({cmd:'setKnobStep',percent:Number(this.value)})">
         <span style="width:42px;text-align:right">${S.knobStepPercent}%</span>
       </div>
     </div>
@@ -780,7 +887,7 @@ function renderAudio() {
     </div>
     <div class="card card-row">
       <div><div class="card-title">${esc(T('Audio.DriverTitle'))}</div><div class="card-desc">${esc(drvDesc)}</div></div>
-      <button class="btn ${drvPrimary?'btn-primary':''}" ${S.setupBusy?'disabled':''} onclick="post({cmd:'driverAction'})">${esc(drvBtn)}</button>
+      <button class="btn ${drvPrimary?'btn-primary':''}" ${S.setupBusy?'disabled':''} onclick="post({cmd:'driverAction'})">${S.virtualCables < 2 ? svg('download', 15) : svg('wrench', 15)}${esc(drvBtn)}</button>
     </div>
     ${S.setupBanner ? `<div class="banner banner-${S.setupBanner.severity}" style="margin-top:4px">
       <div><div class="card-title">${esc(S.setupBanner.title)}</div><div class="card-desc">${esc(S.setupBanner.message)}</div></div>
@@ -831,7 +938,7 @@ function renderAudio() {
     <div class="section-header">${esc(T('Audio.TroubleshootSection'))}</div>
     <div class="card card-row">
       <div><div class="card-title">${esc(T('Audio.RepairCard'))}</div><div class="card-desc">${esc(T('Audio.RepairCardDesc'))}</div></div>
-      <button class="btn" ${S.setupBusy?'disabled':''} onclick="post({cmd:'repairAudio'})">${esc(T('Banner.Repair'))}</button>
+      <button class="btn" ${S.setupBusy?'disabled':''} onclick="post({cmd:'repairAudio'})">${svg('wrench', 15)}${esc(T('Banner.Repair'))}</button>
     </div>
   </div>`;
 }
@@ -1043,13 +1150,16 @@ function renderWizard() {
   window._wizBack = () => step === 1 ? finish(true) : post({ cmd: 'setWizardStep', step: step - 1 });
   window._wizNext = () => step < 3 ? post({ cmd: 'setWizardStep', step: step + 1 }) : finish(false);
 
-  document.getElementById('root').innerHTML = `<div class="wiz-shell">
-    <div class="wiz-body">${body}</div>
-    <div class="wiz-footer">
-      <span class="card-desc" style="font-size:13px">${esc(T('Wizard.StepIndicator', step))}</span>
-      <div style="display:flex;gap:8px">
-        <button class="btn" style="min-width:96px" onclick="_wizBack()">${esc(backLbl)}</button>
-        <button class="btn btn-primary" style="min-width:128px" onclick="_wizNext()">${esc(nextLbl)}</button>
+  document.getElementById('root').innerHTML = `<div class="root-col">
+    ${renderTitleBar(T('Wizard.WindowTitle'), false)}
+    <div class="wiz-shell">
+      <div class="wiz-body">${body}</div>
+      <div class="wiz-footer">
+        <span class="card-desc" style="font-size:13px">${esc(T('Wizard.StepIndicator', step))}</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn" style="min-width:96px" onclick="_wizBack()">${esc(backLbl)}</button>
+          <button class="btn btn-primary" style="min-width:128px" onclick="_wizNext()">${esc(nextLbl)}</button>
+        </div>
       </div>
     </div>
   </div>`;
@@ -1075,16 +1185,25 @@ function render() {
   const prevScroll = scrollEl ? scrollEl.scrollTop : 0;
   const focusId = document.activeElement ? document.activeElement.id : null;
 
-  document.getElementById('root').innerHTML = `<div class="app-shell">
-    <aside class="nav">
-      <div class="nav-group">
-        ${tabs.map(([i, k, tip, ic]) => `<button class="nav-item ${S.activeTab===i?'active':''}" title="${esc(T(tip))}" onclick="post({cmd:'setTab',tab:${i}})">${svg(ic,18)}<span>${esc(T(k))}</span></button>`).join('')}
+  document.getElementById('root').innerHTML = `<div class="root-col">
+    ${renderTitleBar('DualMix', true)}
+    <div class="app-shell">
+      <aside class="nav ${navCollapsed?'collapsed':''}">
+        <div class="nav-top">
+          <button class="nav-ham" onclick="navCollapsed=!navCollapsed;render()" title="Navigation">${svg('hamburger', 16)}</button>
+          <div class="nav-group">
+            ${tabs.map(([i, k, tip, ic]) => `<button class="nav-item ${S.activeTab===i?'active':''}" title="${esc(T(tip))}" onclick="post({cmd:'setTab',tab:${i}})">${svg(ic,18)}<span class="nav-label">${esc(T(k))}</span></button>`).join('')}
+          </div>
+        </div>
+        <div class="nav-group">
+          <div class="nav-sep"></div>
+          <button class="nav-item ${S.activeTab===4?'active':''}" title="${esc(T('Nav.General.Tip'))}" onclick="post({cmd:'setTab',tab:4})">${svg('settings',18)}<span class="nav-label">${esc(T('Nav.General'))}</span></button>
+        </div>
+      </aside>
+      <div class="content-frame">
+        <main class="content-scroll">${pageHtml}</main>
       </div>
-      <div class="nav-group">
-        <button class="nav-item ${S.activeTab===4?'active':''}" title="${esc(T('Nav.General.Tip'))}" onclick="post({cmd:'setTab',tab:4})">${svg('settings',18)}<span>${esc(T('Nav.General'))}</span></button>
-      </div>
-    </aside>
-    <main class="content-scroll">${pageHtml}</main>
+    </div>
   </div>`;
 
   const newScroll = document.querySelector('.content-scroll');
@@ -1114,9 +1233,9 @@ function updateLive(patch) {
     setT('mx-text', S.mixText); setT('mx-gval', S.gameLevelText); setT('mx-cval', S.chatLevelText);
     setT('mx-chip', S.engineChip); setT('mx-fmt', S.formatText);
     if (!dragLocks.mix) { const s = document.getElementById('sl-mix'); if (s) s.value = S.mixPercent; }
-    if (!dragLocks.gvol) { const s = document.getElementById('sl-gvol'); if (s) s.value = S.gameVolumePercent; setT('tx-gvol', S.gameVolumePercent + '%'); }
-    if (!dragLocks.cvol) { const s = document.getElementById('sl-cvol'); if (s) s.value = S.chatVolumePercent; setT('tx-cvol', S.chatVolumePercent + '%'); }
-    if (!dragLocks.ovol) { const s = document.getElementById('sl-ovol'); if (s) s.value = S.outputVolumePercent; setT('tx-ovol', S.outputVolumePercent + '%'); }
+    if (!dragLocks.gvol) { const s = document.getElementById('sl-gvol'); if (s) { s.value = S.gameVolumePercent; setRangePct(s); } setT('tx-gvol', S.gameVolumePercent + '%'); }
+    if (!dragLocks.cvol) { const s = document.getElementById('sl-cvol'); if (s) { s.value = S.chatVolumePercent; setRangePct(s); } setT('tx-cvol', S.chatVolumePercent + '%'); }
+    if (!dragLocks.ovol) { const s = document.getElementById('sl-ovol'); if (s) { s.value = S.outputVolumePercent; setRangePct(s); } setT('tx-ovol', S.outputVolumePercent + '%'); }
   } else if (S.mode === 'main' && S.activeTab === 1 && !Object.keys(dragLocks).length) {
     for (const a of (S.apps || [])) {
       const el = document.querySelector(`[data-peak="${CSS.escape(a.key)}"]`);
@@ -1124,6 +1243,13 @@ function updateLive(patch) {
     }
   }
 }
+
+window.__dualmixSetMaximized = function(max) {
+  if (isMaximized !== !!max) {
+    isMaximized = !!max;
+    if (S && S.mode === 'main') render();
+  }
+};
 
 window.__dualmixSetState = function(next) {
   const prevTab = S ? S.activeTab : -1;

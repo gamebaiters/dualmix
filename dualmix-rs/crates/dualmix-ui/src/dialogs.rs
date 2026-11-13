@@ -7,8 +7,10 @@ use windows::Win32::Foundation::HWND;
 use windows::core::{HSTRING, PCWSTR, PWSTR, w};
 use windows::Win32::Graphics::Dwm::{
     DWM_SYSTEMBACKDROP_TYPE, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
-    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DWMSBT_MAINWINDOW, DwmSetWindowAttribute,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DWMSBT_MAINWINDOW, DwmExtendFrameIntoClientArea,
+    DwmSetWindowAttribute,
 };
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OPENFILENAMEW};
 use windows::Win32::UI::Shell::ShellExecuteW;
@@ -62,6 +64,13 @@ pub fn apply_window_mica_and_theme(hwnd: HWND, dark: bool) {
             &corner as *const _ as *const _,
             std::mem::size_of_val(&corner) as u32,
         );
+        let margins = MARGINS {
+            cxLeftWidth: -1,
+            cxRightWidth: -1,
+            cyTopHeight: -1,
+            cyBottomHeight: -1,
+        };
+        let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
     }
 }
 

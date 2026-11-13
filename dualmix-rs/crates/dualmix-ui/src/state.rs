@@ -156,6 +156,8 @@ pub struct UiState {
 pub enum UiCommand {
     Ready,
     HideWindow,
+    WindowMinimize,
+    WindowToggleMaximize,
     SetTab { tab: u8 },
     SetWizardStep { step: u8 },
     SetMix { percent: f64 },

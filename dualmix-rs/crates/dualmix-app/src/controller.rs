@@ -39,6 +39,14 @@ use crate::updater::Updater;
 
 pub const WM_APP_WAKE: u32 = 0x8020;
 
+const SHORTCUT_DEFAULTS: [(i32, HotkeyModifiers); 5] = [
+    (0x4D, HotkeyModifiers(1 | 2)), // Ctrl + Alt + M
+    (0x4B, HotkeyModifiers(1 | 2)), // Ctrl + Alt + K
+    (0x52, HotkeyModifiers(1 | 2)), // Ctrl + Alt + R
+    (0x7B, HotkeyModifiers(1 | 4)), // Ctrl + Shift + F12
+    (0x7B, HotkeyModifiers(1 | 2)), // Ctrl + Alt + F12
+];
+
 #[derive(Debug, Clone)]
 pub enum ControllerEvent {
     Osd(OsdInfo),
@@ -46,24 +54,35 @@ pub enum ControllerEvent {
     LiveChanged,
     WizardClosed,
     ShowMain,
+    HideMain,
+    MinimizeMain,
+    ToggleMaxMain,
+    PickAddApp,
     OpenWizard,
     Balloon { title: String, body: String },
 }
 
 pub struct WakeHandle {
     hwnd: std::sync::atomic::AtomicIsize,
+    pending: AtomicBool,
 }
 
 impl WakeHandle {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { hwnd: std::sync::atomic::AtomicIsize::new(0) })
+        Arc::new(Self {
+            hwnd: std::sync::atomic::AtomicIsize::new(0),
+            pending: AtomicBool::new(false),
+        })
     }
     pub fn set_hwnd(&self, hwnd: HWND) {
         self.hwnd.store(hwnd.0 as isize, Ordering::Release);
     }
+    pub fn clear_pending(&self) {
+        self.pending.store(false, Ordering::Release);
+    }
     pub fn wake(&self) {
         let raw = self.hwnd.load(Ordering::Acquire);
-        if raw != 0 {
+        if raw != 0 && !self.pending.swap(true, Ordering::AcqRel) {
             let hwnd = HWND(raw as *mut _);
             unsafe {
                 let _ = PostMessageW(hwnd, WM_APP_WAKE, WPARAM(0), LPARAM(0));
@@ -90,6 +109,8 @@ pub struct Controller {
     router: AudioRouter,
     sessions: SessionEngine,
     endpoint_vol: EndpointVolume,
+    master_proxy: EndpointVolume,
+    chat_volume: EndpointVolume,
     _dev_notify: Option<DeviceNotifications>,
     keyboard: Arc<KeyboardHook>,
     knob: Arc<KnobController>,
@@ -98,6 +119,11 @@ pub struct Controller {
 
     // Thread-safe event flags/queues drained on UI thread in `tick()`
     ep_vol_dirty: Arc<AtomicBool>,
+    proxy_vol_dirty: Arc<AtomicBool>,
+    chat_vol_dirty: Arc<AtomicBool>,
+    diag_done: Arc<AtomicBool>,
+    update_dirty: Arc<AtomicBool>,
+    hotkeys_reapplied: Arc<AtomicBool>,
     dev_events: Arc<Mutex<VecDeque<DeviceEvent>>>,
     knob_actions: Arc<Mutex<VecDeque<KnobAction>>>,
     ui_events: Mutex<VecDeque<ControllerEvent>>,
@@ -121,6 +147,11 @@ pub struct Controller {
     active_output: Option<DeviceInfo>,
     render_cache: Vec<DeviceInfo>,
     windows_defaults_applied: bool,
+    defaults_drifted: bool,
+    known_level: f64,
+    known_muted: bool,
+    last_mute_toggle_at: i64,
+    next_volume_note_tick: i64,
 
     // Startup volumes for restore-on-exit
     start_ep_vol: Option<(String, f64, bool)>,
@@ -133,6 +164,7 @@ pub struct Controller {
     pending_re_evaluate: Option<Instant>,
     pending_reconfigure: bool,
     last_health_log: Instant,
+    last_meter_emit: Instant,
     meters_enabled: bool,
     mode_wizard: bool,
     wizard_step: u8,
@@ -184,6 +216,26 @@ impl Controller {
             ep_dirty_cb.store(true, Ordering::Release);
             wake_ep.wake();
         }));
+
+        let proxy_vol_dirty = Arc::new(AtomicBool::new(false));
+        let proxy_dirty_cb = proxy_vol_dirty.clone();
+        let wake_proxy = wake.clone();
+        let master_proxy = EndpointVolume::new(Arc::new(move || {
+            proxy_dirty_cb.store(true, Ordering::Release);
+            wake_proxy.wake();
+        }));
+
+        let chat_vol_dirty = Arc::new(AtomicBool::new(false));
+        let chat_dirty_cb = chat_vol_dirty.clone();
+        let wake_chat = wake.clone();
+        let chat_volume = EndpointVolume::new(Arc::new(move || {
+            chat_dirty_cb.store(true, Ordering::Release);
+            wake_chat.wake();
+        }));
+
+        let diag_done = Arc::new(AtomicBool::new(false));
+        let update_dirty = Arc::new(AtomicBool::new(false));
+        let hotkeys_reapplied = Arc::new(AtomicBool::new(false));
 
         let dev_events = Arc::new(Mutex::new(VecDeque::new()));
         let dev_cb_q = dev_events.clone();
@@ -243,6 +295,12 @@ impl Controller {
             }
             wake_ks.wake();
         })));
+        let hk_flag = hotkeys_reapplied.clone();
+        let wake_hk = wake.clone();
+        keyboard.on_hotkeys_applied(Arc::new(move || {
+            hk_flag.store(true, Ordering::Release);
+            wake_hk.wake();
+        }));
         knob.attach(keyboard.clone());
 
         let version = env!("CARGO_PKG_VERSION").to_string();
@@ -266,12 +324,19 @@ impl Controller {
             router: AudioRouter::new(),
             sessions,
             endpoint_vol,
+            master_proxy,
+            chat_volume,
             _dev_notify: dev_notify,
             keyboard,
             knob,
             updater,
             wake,
             ep_vol_dirty,
+            proxy_vol_dirty,
+            chat_vol_dirty,
+            diag_done,
+            update_dirty,
+            hotkeys_reapplied,
             dev_events,
             knob_actions,
             ui_events: Mutex::new(VecDeque::new()),
@@ -291,6 +356,11 @@ impl Controller {
             active_output: None,
             render_cache: Vec::new(),
             windows_defaults_applied: false,
+            defaults_drifted: false,
+            known_level: -1.0,
+            known_muted: false,
+            last_mute_toggle_at: 0,
+            next_volume_note_tick: 0,
             start_ep_vol: None,
             save_dirty_since: None,
             last_mute_backup: None,
@@ -299,6 +369,7 @@ impl Controller {
             pending_re_evaluate: None,
             pending_reconfigure: false,
             last_health_log: Instant::now(),
+            last_meter_emit: Instant::now(),
             meters_enabled: false,
             mode_wizard: false,
             wizard_step: 1,
@@ -306,11 +377,20 @@ impl Controller {
         };
 
         if !dry_run {
+            c.recover_from_previous_run();
             c.keyboard.start();
             c.sessions.start();
         }
         c.evaluate(true);
         c
+    }
+
+    pub fn meters_enabled(&self) -> bool {
+        self.meters_enabled
+    }
+
+    pub fn is_wizard_mode(&self) -> bool {
+        self.mode_wizard
     }
 
     pub fn set_wizard_mode(&mut self, wizard: bool) {
@@ -329,11 +409,15 @@ impl Controller {
         self.ui_events.lock().ok().and_then(|mut q| q.pop_front())
     }
 
-    fn push_event(&self, ev: ControllerEvent) {
+    fn queue_event(&self, ev: ControllerEvent) {
         if let Ok(mut q) = self.ui_events.lock() {
             q.push_back(ev);
         }
-        self.wake.wake();
+    }
+
+    /// Queues an event for the UI event drain without posting `WM_APP_WAKE` from the UI thread.
+    fn push_event(&self, ev: ControllerEvent) {
+        self.queue_event(ev);
     }
 
     pub fn push_event_balloon(&self, title: String, body: String) {
@@ -368,6 +452,57 @@ impl Controller {
         }
     }
 
+    /// Undoes leftovers of a crash or forced shutdown while virtual devices were active.
+    fn recover_from_previous_run(&mut self) {
+        if self.settings.defaults_backup.is_some() {
+            log::info("Restoring default devices left over by a previous run");
+            self.restore_windows_defaults();
+        }
+        if !self.settings.routed_apps.is_empty() {
+            log::info("Resetting per-app devices left over by a previous run");
+            let keys = std::mem::take(&mut self.settings.routed_apps);
+            let _ = self
+                .sessions
+                .unroute_all(keys)
+                .recv_timeout(Duration::from_millis(1200));
+            self.save_now();
+        }
+    }
+
+    fn ensure_shortcut_usable(&mut self) {
+        if self.dry_run
+            || self.settings.knob_hotkey_custom
+            || !self.settings.knob_enabled
+            || self.settings.knob_hotkey_key == 0
+        {
+            return;
+        }
+        if self
+            .keyboard
+            .is_hotkey_active(self.settings.knob_hotkey_key, self.settings.knob_hotkey_modifiers)
+        {
+            return;
+        }
+        let cur = (self.settings.knob_hotkey_key, self.settings.knob_hotkey_modifiers);
+        let Some(pos) = SHORTCUT_DEFAULTS.iter().position(|&c| c == cur) else {
+            return;
+        };
+        if pos + 1 >= SHORTCUT_DEFAULTS.len() {
+            return;
+        }
+        let old = knob::chord_name(cur.0, cur.1);
+        let next = SHORTCUT_DEFAULTS[pos + 1];
+        self.settings.knob_hotkey_key = next.0;
+        self.settings.knob_hotkey_modifiers = next.1;
+        let new_txt = knob::chord_name(next.0, next.1);
+        log::info(format!(
+            "Shortcut {old} is already used by another program: using {new_txt} instead"
+        ));
+        self.knob.update_config(KnobConfig::from_settings(&self.settings));
+        self.mark_dirty();
+        self.queue_event(ControllerEvent::StateChanged);
+    }
+
     pub fn shutdown(&mut self) {
         if self.settings.restore_volumes_on_exit && !self.dry_run {
             if let Some((ref id, lvl, muted)) = self.start_ep_vol {
@@ -384,10 +519,13 @@ impl Controller {
                 .sessions
                 .unroute_all(self.settings.routed_apps.clone())
                 .recv_timeout(Duration::from_millis(800));
+            self.settings.routed_apps.clear();
             self.sessions.stop(self.settings.restore_volumes_on_exit);
             self.restore_windows_defaults();
             self.keyboard.stop();
         }
+        self.master_proxy.detach();
+        self.chat_volume.detach();
         self.endpoint_vol.detach();
     }
 
@@ -470,11 +608,20 @@ impl Controller {
                     }
                 }
                 self.virtual_active = true;
+                self.chat_volume.attach(Some(&chat_dev.id));
                 if self.settings.set_windows_defaults {
                     self.apply_windows_defaults(want_game_id, &chat_dev.id, &out.id);
+                    let proxy_id = if !self.settings.game_direct {
+                        g.as_ref().map(|d| d.id.as_str())
+                    } else {
+                        None
+                    };
+                    self.master_proxy.attach(proxy_id);
                 } else {
+                    self.master_proxy.detach();
                     self.restore_windows_defaults();
                 }
+                self.push_cable_volumes();
             } else {
                 self.deactivate_virtual();
             }
@@ -491,9 +638,176 @@ impl Controller {
             self.router.stop();
         }
         self.virtual_active = false;
+        self.master_proxy.detach();
+        self.chat_volume.detach();
+        self.known_level = -1.0;
         self.game_bus = None;
         self.chat_bus = None;
         self.restore_windows_defaults();
+    }
+
+    fn front_vol(&self) -> &EndpointVolume {
+        if self.master_proxy.is_available() {
+            &self.master_proxy
+        } else {
+            &self.endpoint_vol
+        }
+    }
+
+    fn mirror_output_to_windows(&mut self) {
+        if !self.endpoint_vol.is_available() {
+            return;
+        }
+        let lvl = self.endpoint_vol.level();
+        let muted = self.endpoint_vol.muted();
+        if self.master_proxy.is_available() {
+            self.master_proxy.set_level(lvl);
+            self.master_proxy.set_muted(muted);
+        }
+        self.known_level = lvl;
+        self.known_muted = muted;
+    }
+
+    fn push_cable_volumes(&mut self) {
+        if self.chat_volume.is_available() {
+            self.chat_volume.set_level(self.settings.chat_volume);
+            self.chat_volume.set_muted(self.settings.chat_muted);
+        }
+        self.mirror_output_to_windows();
+    }
+
+    fn pull_cable_volumes(&mut self) -> bool {
+        if !self.virtual_active || !self.chat_volume.is_available() {
+            return false;
+        }
+        let lvl = (self.chat_volume.level() * 1000.0).round() / 1000.0;
+        let muted = self.chat_volume.muted();
+        let changed = (lvl - self.settings.chat_volume).abs() > 0.002 || muted != self.settings.chat_muted;
+        if changed {
+            self.settings.chat_volume = lvl;
+            self.settings.chat_muted = muted;
+            self.apply_gains();
+            self.mark_dirty();
+        }
+        changed
+    }
+
+    fn apply_front(&mut self, level: f64, muted: bool) {
+        if self.master_proxy.is_available() {
+            self.endpoint_vol.set_level(level);
+            self.endpoint_vol.set_muted(muted);
+        }
+        self.known_level = level;
+        self.known_muted = muted;
+    }
+
+    fn on_front_volume_changed(&mut self) -> bool {
+        if !self.endpoint_vol.is_available() {
+            return false;
+        }
+        let (level, muted, using_proxy) = {
+            let front = self.front_vol();
+            (front.level(), front.muted(), self.master_proxy.is_available())
+        };
+        if self.known_level < 0.0 {
+            self.known_level = self.endpoint_vol.level();
+            self.known_muted = self.endpoint_vol.muted();
+        }
+        let prev_level = self.known_level;
+        let prev_muted = self.known_muted;
+        let mute_toggled = muted != prev_muted;
+        let level_moved = (level - prev_level).abs() > 0.004;
+        if !mute_toggled && !level_moved {
+            return false;
+        }
+
+        let tick = dualmix_audio::router::tick_ms();
+        let mouse = KeyboardHook::is_down(0x01);
+        let ctrl = KeyboardHook::is_down(0x11);
+
+        if self.settings.knob_enabled && !mouse {
+            let mut fn_target = self.settings.knob_target;
+            if ctrl && self.settings.knob_ctrl_alternate {
+                fn_target = if fn_target == KnobTarget::Mix {
+                    KnobTarget::Volume
+                } else {
+                    KnobTarget::Mix
+                };
+            }
+
+            if mute_toggled && !level_moved {
+                if ctrl && self.settings.knob_ctrl_press_cycles {
+                    if using_proxy {
+                        self.master_proxy.set_level(prev_level);
+                        self.master_proxy.set_muted(prev_muted);
+                    } else {
+                        self.endpoint_vol.set_level(prev_level);
+                        self.endpoint_vol.set_muted(prev_muted);
+                    }
+                    self.cycle_target();
+                    return true;
+                }
+                if fn_target != KnobTarget::Volume {
+                    if using_proxy {
+                        self.master_proxy.set_level(prev_level);
+                        self.master_proxy.set_muted(prev_muted);
+                    } else {
+                        self.endpoint_vol.set_level(prev_level);
+                        self.endpoint_vol.set_muted(prev_muted);
+                    }
+                    log::info("Knob press reached Windows instead of DualMix: corrected");
+                    self.press_specific_target(fn_target);
+                    return true;
+                }
+                if self.settings.knob_double_press_cycles {
+                    if tick.saturating_sub(self.last_mute_toggle_at) <= 600 {
+                        self.last_mute_toggle_at = 0;
+                        if muted {
+                            if using_proxy {
+                                self.master_proxy.set_muted(false);
+                            } else {
+                                self.endpoint_vol.set_muted(false);
+                            }
+                        }
+                        self.apply_front(level, false);
+                        self.cycle_target();
+                        return true;
+                    }
+                    self.last_mute_toggle_at = tick;
+                }
+            } else if !mute_toggled && fn_target != KnobTarget::Volume {
+                let steps = (level - prev_level) / 0.02;
+                let k = steps.round() as i32;
+                if k != 0 && k.abs() <= 6 && (steps - k as f64).abs() < 0.26 {
+                    if using_proxy {
+                        self.master_proxy.set_level(prev_level);
+                        self.master_proxy.set_muted(prev_muted);
+                    } else {
+                        self.endpoint_vol.set_level(prev_level);
+                        self.endpoint_vol.set_muted(prev_muted);
+                    }
+                    if tick >= self.next_volume_note_tick {
+                        self.next_volume_note_tick = tick + 5000;
+                        log::info(format!(
+                            "Knob turn reached Windows instead of DualMix: corrected (function {:?})",
+                            fn_target
+                        ));
+                    }
+                    let dir = if k > 0 { 1 } else { -1 };
+                    for _ in 0..k.abs() {
+                        self.handle_knob_action(KnobAction {
+                            kind: KnobActionKind::Rotate,
+                            direction: dir,
+                            target: fn_target,
+                        });
+                    }
+                    return true;
+                }
+            }
+        }
+
+        self.apply_front(level, muted);
+        true
     }
 
     fn apply_windows_defaults(&mut self, game_id: Option<&str>, chat_id: &str, out_id: &str) {
@@ -588,33 +902,55 @@ impl Controller {
         self.push_session_params();
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, from_timer: bool) {
         let mut need_state = false;
         let mut need_live = false;
 
-        // 1. Endpoint volume external changes
-        if self.ep_vol_dirty.swap(false, Ordering::AcqRel) {
+        if self.hotkeys_reapplied.swap(false, Ordering::AcqRel) {
+            self.ensure_shortcut_usable();
+        }
+        if self.diag_done.swap(false, Ordering::AcqRel) {
+            need_state = true;
+        }
+        if self.update_dirty.swap(false, Ordering::AcqRel) {
+            need_state = true;
+        }
+
+        // 1. Endpoint volume external changes (output sound card, DualMix Game proxy, DualMix Chat)
+        if self.chat_vol_dirty.swap(false, Ordering::AcqRel) && self.pull_cable_volumes() {
             need_live = true;
-            if self.settings.knob_enabled
+        }
+        if self.proxy_vol_dirty.swap(false, Ordering::AcqRel) && self.on_front_volume_changed() {
+            need_live = true;
+            if !self.dry_run
+                && self.settings.knob_enabled
                 && self.settings.knob_target == KnobTarget::Volume
-                && self.knob.last_handled_tick() > 0
             {
-                let ago = dualmix_audio::router::tick_ms() - self.knob.last_handled_tick();
-                if ago > 600 && !self.dry_run {
+                let ago = dualmix_audio::router::tick_ms().saturating_sub(self.knob.last_handled_tick());
+                if self.knob.last_handled_tick() == 0 || ago > 600 {
                     self.show_target_osd(KnobTarget::Volume);
                 }
-            } else if !self.dry_run {
-                let ago = dualmix_audio::router::tick_ms() - self.knob.last_handled_tick();
-                if self.knob.last_handled_tick() == 0 || ago > 600 {
-                    // External Windows volume change (e.g. hardware knob bypassing hook)
-                    if self.settings.knob_enabled && self.settings.knob_target == KnobTarget::Volume {
+            }
+        }
+        if self.ep_vol_dirty.swap(false, Ordering::AcqRel) {
+            if self.master_proxy.is_available() {
+                self.mirror_output_to_windows();
+                need_live = true;
+            } else if self.on_front_volume_changed() {
+                need_live = true;
+                if !self.dry_run
+                    && self.settings.knob_enabled
+                    && self.settings.knob_target == KnobTarget::Volume
+                {
+                    let ago = dualmix_audio::router::tick_ms().saturating_sub(self.knob.last_handled_tick());
+                    if self.knob.last_handled_tick() == 0 || ago > 600 {
                         self.show_target_osd(KnobTarget::Volume);
                     }
                 }
             }
         }
 
-        // 2. Device notifications (debounced re-evaluate)
+        // 2. Device notifications (debounced re-evaluate + Windows defaults enforcement)
         let mut got_dev = false;
         let mut reconf = false;
         while let Some(ev) = self.dev_events.lock().ok().and_then(|mut q| q.pop_front()) {
@@ -623,7 +959,11 @@ impl Controller {
                 DeviceEvent::Changed | DeviceEvent::FormatChanged { .. } => {
                     reconf = true;
                 }
-                DeviceEvent::DefaultChanged { .. } => {}
+                DeviceEvent::DefaultChanged { .. } => {
+                    if self.virtual_active && self.settings.set_windows_defaults {
+                        self.defaults_drifted = true;
+                    }
+                }
             }
         }
         if got_dev {
@@ -636,8 +976,11 @@ impl Controller {
             if Instant::now() >= due {
                 self.pending_re_evaluate = None;
                 let rec = std::mem::take(&mut self.pending_reconfigure);
-                self.evaluate(rec);
-                need_state = true;
+                let drifted = std::mem::take(&mut self.defaults_drifted);
+                if rec || drifted {
+                    self.evaluate(rec);
+                    need_state = true;
+                }
             }
         }
 
@@ -787,9 +1130,15 @@ impl Controller {
         }
 
         if need_state {
-            self.push_event(ControllerEvent::StateChanged);
-        } else if need_live || self.meters_enabled {
-            self.push_event(ControllerEvent::LiveChanged);
+            self.queue_event(ControllerEvent::StateChanged);
+        } else if need_live {
+            if from_timer && self.meters_enabled {
+                self.last_meter_emit = Instant::now();
+            }
+            self.queue_event(ControllerEvent::LiveChanged);
+        } else if from_timer && self.meters_enabled && self.last_meter_emit.elapsed() >= Duration::from_millis(55) {
+            self.last_meter_emit = Instant::now();
+            self.queue_event(ControllerEvent::LiveChanged);
         }
     }
 
@@ -821,6 +1170,7 @@ impl Controller {
                     let next = (self.endpoint_vol.level() + delta).clamp(0.0, 1.0);
                     self.endpoint_vol.set_muted(false);
                     self.endpoint_vol.set_level(next);
+                    self.mirror_output_to_windows();
                     self.show_target_osd(KnobTarget::Volume);
                 }
             }
@@ -835,6 +1185,7 @@ impl Controller {
                 self.settings.chat_muted = false;
                 self.settings.chat_volume = (self.settings.chat_volume + delta).clamp(0.0, 1.0);
                 self.apply_gains();
+                self.push_cable_volumes();
                 self.mark_dirty();
                 self.show_target_osd(KnobTarget::Chat);
             }
@@ -853,6 +1204,7 @@ impl Controller {
                         self.endpoint_vol.set_muted(prev.output_muted);
                     }
                     self.apply_gains();
+                    self.push_cable_volumes();
                     self.cycle_target();
                     return;
                 }
@@ -879,6 +1231,7 @@ impl Controller {
                         self.endpoint_vol.set_muted(next);
                     }
                     self.apply_gains();
+                    self.push_cable_volumes();
                     self.mark_dirty();
                     self.show_target_osd(KnobTarget::Volume);
                 } else {
@@ -889,6 +1242,7 @@ impl Controller {
                 if self.endpoint_vol.is_available() {
                     let next = !self.endpoint_vol.muted();
                     self.endpoint_vol.set_muted(next);
+                    self.mirror_output_to_windows();
                     self.show_target_osd(KnobTarget::Volume);
                 }
             }
@@ -901,6 +1255,7 @@ impl Controller {
             KnobTarget::Chat => {
                 self.settings.chat_muted = !self.settings.chat_muted;
                 self.apply_gains();
+                self.push_cable_volumes();
                 self.mark_dirty();
                 self.show_target_osd(KnobTarget::Chat);
             }
@@ -1008,9 +1363,20 @@ impl Controller {
             UiCommand::Ready => {
                 self.push_event(ControllerEvent::StateChanged);
             }
-            UiCommand::HideWindow => {}
+            UiCommand::HideWindow => {
+                self.queue_event(ControllerEvent::HideMain);
+            }
+            UiCommand::WindowMinimize => {
+                self.queue_event(ControllerEvent::MinimizeMain);
+            }
+            UiCommand::WindowToggleMaximize => {
+                self.queue_event(ControllerEvent::ToggleMaxMain);
+            }
             UiCommand::SetTab { tab } => {
-                self.active_tab = tab;
+                if self.active_tab != tab {
+                    self.active_tab = tab;
+                    self.queue_event(ControllerEvent::StateChanged);
+                }
             }
             UiCommand::SetWizardStep { step } => {
                 self.wizard_step = step.clamp(1, 3);
@@ -1033,6 +1399,7 @@ impl Controller {
             UiCommand::SetChatVolume { percent } => {
                 self.settings.chat_volume = (percent / 100.0).clamp(0.0, 1.0);
                 self.apply_gains();
+                self.push_cable_volumes();
                 self.mark_dirty();
                 self.push_event(ControllerEvent::LiveChanged);
             }
@@ -1045,18 +1412,21 @@ impl Controller {
             UiCommand::SetChatMuted { muted } => {
                 self.settings.chat_muted = muted;
                 self.apply_gains();
+                self.push_cable_volumes();
                 self.mark_dirty();
                 self.push_event(ControllerEvent::LiveChanged);
             }
             UiCommand::SetOutputVolume { percent } => {
                 if self.endpoint_vol.is_available() {
                     self.endpoint_vol.set_level((percent / 100.0).clamp(0.0, 1.0));
+                    self.mirror_output_to_windows();
                     self.push_event(ControllerEvent::LiveChanged);
                 }
             }
             UiCommand::SetOutputMuted { muted } => {
                 if self.endpoint_vol.is_available() {
                     self.endpoint_vol.set_muted(muted);
+                    self.mirror_output_to_windows();
                     self.push_event(ControllerEvent::LiveChanged);
                 }
             }
@@ -1089,22 +1459,7 @@ impl Controller {
                 self.push_event(ControllerEvent::LiveChanged);
             }
             UiCommand::PickAddApp => {
-                let title = loc::get("Apps.PickTitle");
-                let filter = loc::get("Apps.PickFilter");
-                if let Some(path) = dialogs::open_file_dialog(HWND::default(), &title, &filter) {
-                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                        let key = stem.to_ascii_lowercase();
-                        let r = self.settings.apps.entry(key).or_insert_with(AppRule::default);
-                        r.display_name = Some(stem.to_string());
-                        r.exe_path = Some(path.to_string_lossy().into_owned());
-                        if r.channel.is_none() {
-                            r.channel = Some(Channel::Chat);
-                        }
-                        self.rebuild_rules();
-                        self.mark_dirty();
-                        self.push_event(ControllerEvent::StateChanged);
-                    }
-                }
+                self.queue_event(ControllerEvent::PickAddApp);
             }
             UiCommand::SetKnobTarget { target } => {
                 self.set_knob_target(target, false);
@@ -1267,10 +1622,17 @@ impl Controller {
             UiCommand::UpdateAction => {
                 let st = self.updater.snapshot();
                 let wake = self.wake.clone();
+                let udirty = self.update_dirty.clone();
                 if st.available_version.is_some() {
-                    self.updater.install_async(move || wake.wake());
+                    self.updater.install_async(move || {
+                        udirty.store(true, Ordering::Release);
+                        wake.wake();
+                    });
                 } else {
-                    self.updater.check_async(true, move || wake.wake());
+                    self.updater.check_async(true, move || {
+                        udirty.store(true, Ordering::Release);
+                        wake.wake();
+                    });
                 }
                 self.push_event(ControllerEvent::StateChanged);
             }
@@ -1290,6 +1652,7 @@ impl Controller {
                 if !self.diag_busy.swap(true, Ordering::AcqRel) {
                     let busy = self.diag_busy.clone();
                     let out = self.diag_text.clone();
+                    let done = self.diag_done.clone();
                     let wake = self.wake.clone();
                     std::thread::spawn(move || {
                         let rep = crate::diagnostics::run(true, false);
@@ -1297,6 +1660,7 @@ impl Controller {
                             *g = rep.text;
                         }
                         busy.store(false, Ordering::Release);
+                        done.store(true, Ordering::Release);
                         wake.wake();
                     });
                     self.push_event(ControllerEvent::StateChanged);
@@ -1625,6 +1989,21 @@ impl Controller {
         }
     }
 
+    pub fn apply_picked_app(&mut self, path: PathBuf) {
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            let key = stem.to_ascii_lowercase();
+            let r = self.settings.apps.entry(key).or_insert_with(AppRule::default);
+            r.display_name = Some(stem.to_string());
+            r.exe_path = Some(path.to_string_lossy().into_owned());
+            if r.channel.is_none() {
+                r.channel = Some(Channel::Chat);
+            }
+            self.rebuild_rules();
+            self.mark_dirty();
+            self.queue_event(ControllerEvent::StateChanged);
+        }
+    }
+
     fn status_summary(&self) -> (StatusSeverity, String, String, bool, bool) {
         if self.router.state() == RouterState::Error {
             return (
@@ -1635,6 +2014,15 @@ impl Controller {
                     .unwrap_or_else(|| loc::get("Status.VirtualPaused.ErrBody")),
                 false,
                 true,
+            );
+        }
+        if self.active_output.is_none() {
+            return (
+                StatusSeverity::Error,
+                loc::get("Status.NoOutput.Title"),
+                loc::get("Status.NoOutput.Body"),
+                false,
+                false,
             );
         }
         if self.settings.mode == EngineMode::VirtualDevices && self.virtual_cables == 0 {
@@ -1679,7 +2067,7 @@ impl Controller {
             );
         }
         (
-            StatusSeverity::Success,
+            StatusSeverity::Info,
             loc::get("Status.PerAppMode.Title"),
             loc::fmt("Status.PerAppMode.Body", &[&out_name]),
             false,

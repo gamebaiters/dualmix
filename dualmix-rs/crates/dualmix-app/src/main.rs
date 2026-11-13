@@ -327,6 +327,8 @@ fn run_snapshot(out_dir: std::path::PathBuf, lang: Option<dualmix_core::settings
 #[cfg(windows)]
 struct AppHostState {
     ctrl: std::rc::Rc<std::cell::RefCell<controller::Controller>>,
+    wake: std::sync::Arc<controller::WakeHandle>,
+    host_hwnd: windows::Win32::Foundation::HWND,
     tray: dualmix_ui::tray::TrayIcon,
     osd: Option<dualmix_ui::osd::OsdWindow>,
     main_win: std::cell::RefCell<Option<dualmix_ui::webview::FluentWebWindow>>,
@@ -334,6 +336,8 @@ struct AppHostState {
     show_ev: windows::Win32::Foundation::HANDLE,
     exit_ev: windows::Win32::Foundation::HANDLE,
     running: std::cell::Cell<bool>,
+    fast_timer: std::cell::Cell<bool>,
+    modal_open: std::cell::Cell<bool>,
     auto_update_checked: std::cell::Cell<bool>,
     auto_update_handled: std::cell::Cell<bool>,
     started_at: std::time::Instant,
@@ -341,63 +345,83 @@ struct AppHostState {
 
 #[cfg(windows)]
 impl AppHostState {
+    fn sync_timer_rate(&self) {
+        let want_fast = self.ctrl.try_borrow().map(|c| c.meters_enabled()).unwrap_or(false);
+        if want_fast != self.fast_timer.get() && !self.host_hwnd.0.is_null() {
+            self.fast_timer.set(want_fast);
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::SetTimer(
+                    self.host_hwnd,
+                    1,
+                    if want_fast { 66 } else { 250 },
+                    None,
+                );
+            }
+        }
+    }
+
     fn open_main(&self) {
-        let mut slot = self.main_win.borrow_mut();
-        if let Some(w) = slot.as_ref() {
+        if let Some(w) = self.main_win.borrow().clone() {
             let st = self.ctrl.borrow().build_ui_state();
             w.push_state(&st);
             w.show();
             self.ctrl.borrow_mut().set_meters_enabled(true);
+            self.sync_timer_rate();
             return;
         }
 
         let ctrl = self.ctrl.clone();
         let ctrl_vis = self.ctrl.clone();
-        let wake = controller::WakeHandle::new();
-        let _ = wake;
+        let wake_cmd = self.wake.clone();
+        let wake_vis = self.wake.clone();
         let dark = self.ctrl.borrow().is_dark();
         let title = format!("DualMix {}", env!("CARGO_PKG_VERSION"));
         let ctrl_ref = self.ctrl.clone();
-        let tray_hint_needed = !self.ctrl.borrow().settings.tray_hint_shown;
-        let _ = tray_hint_needed;
 
         match dualmix_ui::webview::FluentWebWindow::new(
             dualmix_ui::webview::WindowKind::Main,
             &title,
             dark,
             Box::new(move |cmd| {
-                ctrl.borrow_mut().handle_ui_command(cmd);
+                if let Ok(mut c) = ctrl.try_borrow_mut() {
+                    c.handle_ui_command(cmd);
+                }
+                wake_cmd.wake();
             }),
             Box::new(move |vis| {
-                ctrl_vis.borrow_mut().set_meters_enabled(vis);
+                if let Ok(mut c) = ctrl_vis.try_borrow_mut() {
+                    c.set_meters_enabled(vis);
+                }
                 if !vis {
-                    let mut c = ctrl_ref.borrow_mut();
-                    if !c.settings.tray_hint_shown && !c.dry_run {
-                        c.settings.tray_hint_shown = true;
-                        c.save_now();
-                        c.push_event_balloon(
-                            dualmix_core::loc::get("Tray.StillRunning.Title"),
-                            dualmix_core::loc::get("Tray.StillRunning.Body"),
-                        );
+                    if let Ok(mut c) = ctrl_ref.try_borrow_mut() {
+                        if !c.settings.tray_hint_shown && !c.dry_run {
+                            c.settings.tray_hint_shown = true;
+                            c.save_now();
+                            c.push_event_balloon(
+                                dualmix_core::loc::get("Tray.StillRunning.Title"),
+                                dualmix_core::loc::get("Tray.StillRunning.Body"),
+                            );
+                        }
                     }
                 }
+                wake_vis.wake();
             }),
             Box::new(|| {}),
         ) {
             Ok(w) => {
+                *self.main_win.borrow_mut() = Some(w.clone());
                 let st = self.ctrl.borrow().build_ui_state();
                 w.push_state(&st);
                 w.show();
                 self.ctrl.borrow_mut().set_meters_enabled(true);
-                *slot = Some(w);
+                self.sync_timer_rate();
             }
             Err(e) => dualmix_core::log::error(format!("MainWindow creation failed: {e}")),
         }
     }
 
     fn open_wizard(&self) {
-        let mut slot = self.wiz_win.borrow_mut();
-        if let Some(w) = slot.as_ref() {
+        if let Some(w) = self.wiz_win.borrow().clone() {
             self.ctrl.borrow_mut().set_wizard_mode(true);
             let st = self.ctrl.borrow().build_ui_state();
             w.push_state(&st);
@@ -408,6 +432,7 @@ impl AppHostState {
         self.ctrl.borrow_mut().set_wizard_mode(true);
         let ctrl = self.ctrl.clone();
         let ctrl_close = self.ctrl.clone();
+        let wake_cmd = self.wake.clone();
         let dark = self.ctrl.borrow().is_dark();
         let title = dualmix_core::loc::get("Wizard.WindowTitle");
         match dualmix_ui::webview::FluentWebWindow::new(
@@ -415,18 +440,23 @@ impl AppHostState {
             &title,
             dark,
             Box::new(move |cmd| {
-                ctrl.borrow_mut().handle_ui_command(cmd);
+                if let Ok(mut c) = ctrl.try_borrow_mut() {
+                    c.handle_ui_command(cmd);
+                }
+                wake_cmd.wake();
             }),
             Box::new(|_| {}),
             Box::new(move || {
-                ctrl_close.borrow_mut().set_wizard_mode(false);
+                if let Ok(mut c) = ctrl_close.try_borrow_mut() {
+                    c.set_wizard_mode(false);
+                }
             }),
         ) {
             Ok(w) => {
+                *self.wiz_win.borrow_mut() = Some(w.clone());
                 let st = self.ctrl.borrow().build_ui_state();
                 w.push_state(&st);
                 w.show();
-                *slot = Some(w);
             }
             Err(e) => dualmix_core::log::error(format!("SetupWindow creation failed: {e}")),
         }
@@ -434,7 +464,7 @@ impl AppHostState {
 
     fn drain_controller_events(&self) {
         loop {
-            let ev = self.ctrl.borrow_mut().pop_event();
+            let ev = self.ctrl.try_borrow_mut().ok().and_then(|mut c| c.pop_event());
             let Some(ev) = ev else { break };
             match ev {
                 controller::ControllerEvent::Osd(info) => {
@@ -445,10 +475,10 @@ impl AppHostState {
                 }
                 controller::ControllerEvent::StateChanged => {
                     let st = self.ctrl.borrow().build_ui_state();
-                    if let Some(ref w) = *self.main_win.borrow() {
+                    if let Some(w) = self.main_win.borrow().clone() {
                         w.push_state(&st);
                     }
-                    if let Some(ref w) = *self.wiz_win.borrow() {
+                    if let Some(w) = self.wiz_win.borrow().clone() {
                         let mut wiz_st = st.clone();
                         wiz_st.mode = "wizard".to_string();
                         w.push_state(&wiz_st);
@@ -457,7 +487,7 @@ impl AppHostState {
                     self.tray.update_tooltip(&ts.tooltip);
                 }
                 controller::ControllerEvent::LiveChanged => {
-                    if let Some(ref w) = *self.main_win.borrow() {
+                    if let Some(w) = self.main_win.borrow().clone() {
                         if w.is_visible() {
                             let patch = self.ctrl.borrow().build_live_patch();
                             w.push_live(&patch);
@@ -465,14 +495,53 @@ impl AppHostState {
                     }
                 }
                 controller::ControllerEvent::WizardClosed => {
-                    let mut wz = self.wiz_win.borrow_mut();
-                    if let Some(w) = wz.take() {
+                    let w = self.wiz_win.borrow_mut().take();
+                    if let Some(w) = w {
                         w.really_close();
                     }
                     self.ctrl.borrow_mut().set_wizard_mode(false);
                 }
                 controller::ControllerEvent::ShowMain => {
                     self.open_main();
+                }
+                controller::ControllerEvent::HideMain => {
+                    if let Some(w) = self.main_win.borrow().clone() {
+                        w.hide();
+                        self.ctrl.borrow_mut().set_meters_enabled(false);
+                    } else if let Some(w) = self.wiz_win.borrow().clone() {
+                        w.hide();
+                    }
+                }
+                controller::ControllerEvent::MinimizeMain => {
+                    if self.ctrl.borrow().is_wizard_mode() {
+                        if let Some(w) = self.wiz_win.borrow().clone() {
+                            w.minimize();
+                        }
+                    } else if let Some(w) = self.main_win.borrow().clone() {
+                        w.minimize();
+                    }
+                }
+                controller::ControllerEvent::ToggleMaxMain => {
+                    if let Some(w) = self.main_win.borrow().clone() {
+                        w.toggle_maximize();
+                    }
+                }
+                controller::ControllerEvent::PickAddApp => {
+                    if !self.modal_open.replace(true) {
+                        let owner = self
+                            .main_win
+                            .borrow()
+                            .as_ref()
+                            .map(|w| w.hwnd())
+                            .unwrap_or_default();
+                        let title = dualmix_core::loc::get("Apps.PickTitle");
+                        let filter = dualmix_core::loc::get("Apps.PickFilter");
+                        let picked = dualmix_ui::dialogs::open_file_dialog(owner, &title, &filter);
+                        self.modal_open.set(false);
+                        if let Some(path) = picked {
+                            self.ctrl.borrow_mut().apply_picked_app(path);
+                        }
+                    }
                 }
                 controller::ControllerEvent::OpenWizard => {
                     self.open_wizard();
@@ -482,6 +551,7 @@ impl AppHostState {
                 }
             }
         }
+        self.sync_timer_rate();
     }
 
     fn shutdown(&self, hwnd: windows::Win32::Foundation::HWND) {
@@ -491,10 +561,12 @@ impl AppHostState {
         unsafe {
             let _ = windows::Win32::UI::WindowsAndMessaging::KillTimer(hwnd, 1);
         }
-        if let Some(w) = self.main_win.borrow_mut().take() {
+        let m = self.main_win.borrow_mut().take();
+        if let Some(w) = m {
             w.really_close();
         }
-        if let Some(w) = self.wiz_win.borrow_mut().take() {
+        let wz = self.wiz_win.borrow_mut().take();
+        if let Some(w) = wz {
             w.really_close();
         }
         self.ctrl.borrow_mut().shutdown();
@@ -537,6 +609,14 @@ fn run_interactive_app(args: &[String]) -> i32 {
     let exit_name = HSTRING::from(dualmix_ui::EXIT_EVENT);
     let show_ev = unsafe { CreateEventW(None, true, false, &show_name).unwrap_or_default() };
     let exit_ev = unsafe { CreateEventW(None, true, false, &exit_name).unwrap_or_default() };
+    unsafe {
+        if !show_ev.is_invalid() {
+            let _ = ResetEvent(show_ev);
+        }
+        if !exit_ev.is_invalid() {
+            let _ = ResetEvent(exit_ev);
+        }
+    }
 
     log::info(format!("DualMix {} starting", env!("CARGO_PKG_VERSION")));
     dualmix_audio::process_tuning::apply_process_tuning();
@@ -574,18 +654,21 @@ fn run_interactive_app(args: &[String]) -> i32 {
                         host.shutdown(hwnd);
                         return LRESULT(0);
                     }
-                    host.ctrl.borrow_mut().tick();
-                    host.drain_controller_events();
+                    if let Ok(mut c) = host.ctrl.try_borrow_mut() {
+                        c.tick(true);
+                    }
+                    if !host.modal_open.get() {
+                        host.drain_controller_events();
+                    }
 
                     if !host.auto_update_checked.get() && host.started_at.elapsed().as_secs() >= 5 {
                         host.auto_update_checked.set(true);
                         let mode = host.ctrl.borrow().settings.update_mode;
                         if mode != UpdateMode::Off {
                             let upd = host.ctrl.borrow().updater.clone();
-                            let hwnd_raw = hwnd.0 as isize;
+                            let w = host.wake.clone();
                             upd.check_async(false, move || {
-                                let h = HWND(hwnd_raw as *mut _);
-                                let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(h, controller::WM_APP_WAKE, WPARAM(0), LPARAM(0));
+                                w.wake();
                             });
                         }
                     } else if host.auto_update_checked.get() && !host.auto_update_handled.get() {
@@ -601,10 +684,9 @@ fn run_interactive_app(args: &[String]) -> i32 {
                                         &dualmix_core::loc::fmt("Updater.BalloonInstalling", &[&ver]),
                                     );
                                     let upd = host.ctrl.borrow().updater.clone();
-                                    let hwnd_raw = hwnd.0 as isize;
+                                    let w = host.wake.clone();
                                     upd.install_async(move || {
-                                        let h = HWND(hwnd_raw as *mut _);
-                                        let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(h, controller::WM_APP_WAKE, WPARAM(0), LPARAM(0));
+                                        w.wake();
                                     });
                                 } else if mode == UpdateMode::Notify {
                                     host.tray.show_balloon(
@@ -620,13 +702,24 @@ fn run_interactive_app(args: &[String]) -> i32 {
                     LRESULT(0)
                 }
                 controller::WM_APP_WAKE => {
-                    host.ctrl.borrow_mut().tick();
-                    host.drain_controller_events();
+                    host.wake.clear_pending();
+                    if let Ok(mut c) = host.ctrl.try_borrow_mut() {
+                        c.tick(false);
+                    }
+                    if !host.modal_open.get() {
+                        host.drain_controller_events();
+                    }
                     LRESULT(0)
                 }
                 dualmix_ui::tray::WM_TRAY_ICON => {
+                    if host.modal_open.get() {
+                        return LRESULT(0);
+                    }
                     let status = host.ctrl.borrow().tray_status();
-                    if let Some(act) = host.tray.handle_message(lparam, &status) {
+                    host.modal_open.set(true);
+                    let act = host.tray.handle_message(lparam, &status);
+                    host.modal_open.set(false);
+                    if let Some(act) = act {
                         match act {
                             dualmix_ui::tray::TrayAction::Open => host.open_main(),
                             dualmix_ui::tray::TrayAction::AllGame => {
@@ -705,6 +798,8 @@ fn run_interactive_app(args: &[String]) -> i32 {
     let osd = dualmix_ui::osd::OsdWindow::create();
     let host = Rc::new(AppHostState {
         ctrl: ctrl.clone(),
+        wake: wake.clone(),
+        host_hwnd: hwnd,
         tray,
         osd,
         main_win: RefCell::new(None),
@@ -712,6 +807,8 @@ fn run_interactive_app(args: &[String]) -> i32 {
         show_ev,
         exit_ev,
         running: Cell::new(true),
+        fast_timer: Cell::new(false),
+        modal_open: Cell::new(false),
         auto_update_checked: Cell::new(false),
         auto_update_handled: Cell::new(false),
         started_at: Instant::now(),

@@ -30,17 +30,19 @@ use windows::Win32::System::Com::StructuredStorage::GetHGlobalFromStream;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
 use windows::Win32::System::Ole::OleInitialize;
-use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateIconFromResourceEx, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     GetClientRect, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, GWLP_USERDATA, HICON,
-    ICON_BIG, ICON_SMALL, IDC_ARROW, LR_DEFAULTCOLOR, LoadCursorW, LookupIconIdFromDirectoryEx,
-    MINMAXINFO, MSG, PM_REMOVE, PeekMessageW, PostMessageW, RegisterClassExW, SC_CLOSE,
-    SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_RESTORE, SW_SHOW, SW_SHOWNORMAL, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CLOSE,
-    WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO, WM_NCCREATE, WM_SETICON, WM_SHOWWINDOW, WM_SIZE,
-    WM_SYSCOMMAND, WNDCLASSEXW, WS_CAPTION, WS_CLIPCHILDREN, WS_MINIMIZEBOX,
-    WS_OVERLAPPEDWINDOW, WS_SYSMENU, HWND_TOP, SWP_NOMOVE, SWP_NOZORDER,
+    ICON_BIG, ICON_SMALL, IDC_ARROW, IsIconic, IsZoomed, LR_DEFAULTCOLOR, LoadCursorW,
+    LookupIconIdFromDirectoryEx, MINMAXINFO, MSG, NCCALCSIZE_PARAMS, PM_REMOVE, PeekMessageW,
+    PostMessageW, RegisterClassExW, SC_CLOSE, SC_MAXIMIZE, SC_MINIMIZE, SC_RESTORE,
+    SM_CXPADDEDBORDER, SM_CYFRAME, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_RESTORE, SW_SHOW,
+    SW_SHOWNORMAL, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, SetWindowTextW,
+    ShowWindow, TranslateMessage, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETMINMAXINFO,
+    WM_NCCALCSIZE, WM_NCCREATE, WM_SETICON, WM_SHOWWINDOW, WM_SIZE, WM_SYSCOMMAND, WNDCLASSEXW,
+    WS_CAPTION, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_SYSMENU,
+    HWND_TOP, SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
 };
 use windows::core::{HSTRING, Interface, PCWSTR, PWSTR, w};
 
@@ -112,6 +114,7 @@ struct Inner {
     on_closed: VoidCallback,
 }
 
+#[derive(Clone)]
 pub struct FluentWebWindow {
     inner: Rc<Inner>,
 }
@@ -211,13 +214,13 @@ impl FluentWebWindow {
         ensure_class();
 
         let (logical_w, logical_h, min_w, min_h, style) = match kind {
-            WindowKind::Main => (1040, 740, 820, 560, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN),
+            WindowKind::Main => (1040, 764, 820, 560, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN),
             WindowKind::Wizard => (
                 680,
                 600,
                 640,
                 540,
-                (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN),
+                (WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_CLIPCHILDREN),
             ),
         };
 
@@ -287,7 +290,7 @@ impl FluentWebWindow {
                 (sy - h_scaled).max(0) / 2,
                 w_scaled,
                 h_scaled,
-                SWP_NOZORDER,
+                SWP_NOZORDER | SWP_FRAMECHANGED,
             );
             let big = load_icon_size(32);
             let small = load_icon_size(16);
@@ -332,11 +335,7 @@ impl FluentWebWindow {
                     let _ = ctrl.SetBounds(rc);
                     let _ = ctrl.SetIsVisible(inner.visible.get() || inner.kind == WindowKind::Wizard);
                     if let Ok(ctrl2) = ctrl.cast::<ICoreWebView2Controller2>() {
-                        let bg = if inner.dark.get() {
-                            COREWEBVIEW2_COLOR { A: 255, R: 32, G: 32, B: 32 }
-                        } else {
-                            COREWEBVIEW2_COLOR { A: 255, R: 243, G: 243, B: 243 }
-                        };
+                        let bg = COREWEBVIEW2_COLOR { A: 0, R: 0, G: 0, B: 0 };
                         let _ = ctrl2.SetDefaultBackgroundColor(bg);
                     }
                 }
@@ -420,10 +419,47 @@ impl FluentWebWindow {
         self.inner.hide_on_close.set(hide);
     }
 
+    pub fn minimize(&self) {
+        unsafe {
+            let _ = PostMessageW(
+                self.inner.hwnd,
+                WM_SYSCOMMAND,
+                WPARAM(SC_MINIMIZE as usize),
+                LPARAM(0),
+            );
+        }
+    }
+
+    pub fn toggle_maximize(&self) {
+        if self.inner.kind != WindowKind::Main {
+            return;
+        }
+        unsafe {
+            let sc = if IsZoomed(self.inner.hwnd).as_bool() {
+                SC_RESTORE
+            } else {
+                SC_MAXIMIZE
+            };
+            let _ = PostMessageW(self.inner.hwnd, WM_SYSCOMMAND, WPARAM(sc as usize), LPARAM(0));
+        }
+    }
+
     pub fn show(&self) {
         unsafe {
-            let _ = ShowWindow(self.inner.hwnd, SW_SHOW);
-            let _ = ShowWindow(self.inner.hwnd, SW_RESTORE);
+            if IsIconic(self.inner.hwnd).as_bool() {
+                let _ = ShowWindow(self.inner.hwnd, SW_RESTORE);
+            } else {
+                let _ = ShowWindow(self.inner.hwnd, SW_SHOW);
+            }
+            let _ = SetWindowPos(
+                self.inner.hwnd,
+                HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+            );
             let _ = UpdateWindow(self.inner.hwnd);
             let _ = SetForegroundWindow(self.inner.hwnd);
         }
@@ -474,16 +510,6 @@ impl FluentWebWindow {
         if self.inner.dark.get() != dark {
             self.inner.dark.set(dark);
             apply_window_mica_and_theme(self.inner.hwnd, dark);
-            if let Some(ctrl) = self.inner.controller.borrow().as_ref() {
-                if let Ok(ctrl2) = ctrl.cast::<ICoreWebView2Controller2>() {
-                    let bg = if dark {
-                        COREWEBVIEW2_COLOR { A: 255, R: 32, G: 32, B: 32 }
-                    } else {
-                        COREWEBVIEW2_COLOR { A: 255, R: 243, G: 243, B: 243 }
-                    };
-                    let _ = unsafe { ctrl2.SetDefaultBackgroundColor(bg) };
-                }
-            }
         }
     }
 
@@ -533,6 +559,8 @@ impl FluentWebWindow {
 
     /// Captures the rendered WebView2 viewport to a PNG file using `ICoreWebView2::CapturePreview`.
     pub fn capture_png(&self, path: &Path) -> Result<(), String> {
+        self.inner.exec_script("document.documentElement.classList.add('snapshot-opaque');");
+        pump_messages_for(Duration::from_millis(60));
         let wv = self
             .inner
             .webview
@@ -569,6 +597,7 @@ impl FluentWebWindow {
         while !done.get() && start.elapsed() < Duration::from_secs(10) {
             pump_messages_once();
         }
+        self.inner.exec_script("document.documentElement.classList.remove('snapshot-opaque');");
         if !done.get() {
             return Err("CapturePreview timed out".to_string());
         }
@@ -668,12 +697,35 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
         let inner = &*ptr;
 
         match msg {
+            WM_NCCALCSIZE => {
+                if wparam.0 != 0 {
+                    let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
+                    let top_before = params.rgrc[0].top;
+                    DefWindowProcW(hwnd, msg, wparam, lparam);
+                    if IsZoomed(hwnd).as_bool() {
+                        let dpi = GetDpiForWindow(hwnd).max(96);
+                        let frame_y = GetSystemMetricsForDpi(SM_CYFRAME, dpi)
+                            + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+                        params.rgrc[0].top = top_before + frame_y;
+                    } else {
+                        params.rgrc[0].top = top_before;
+                    }
+                    return LRESULT(0);
+                }
+                DefWindowProcW(hwnd, msg, wparam, lparam)
+            }
             WM_SIZE => {
                 let mut rc = RECT::default();
                 let _ = GetClientRect(hwnd, &mut rc);
                 if let Some(ctrl) = inner.controller.borrow().as_ref() {
                     let _ = ctrl.SetBounds(rc);
                 }
+                let is_max = IsZoomed(hwnd).as_bool();
+                inner.exec_script(if is_max {
+                    "if(window.__dualmixSetMaximized)window.__dualmixSetMaximized(true);"
+                } else {
+                    "if(window.__dualmixSetMaximized)window.__dualmixSetMaximized(false);"
+                });
                 // SIZE_MINIMIZED = 1
                 let is_min = wparam.0 == 1;
                 if inner.minimized.get() != is_min {

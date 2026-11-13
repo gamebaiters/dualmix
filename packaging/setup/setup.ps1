@@ -142,7 +142,7 @@ try {
         $isNative = $true
         $vi = (Get-Item $srcExe).VersionInfo
         $version = (($vi.ProductVersion, $vi.FileVersion | Where-Object { $_ } | Select-Object -First 1) -replace '\+.*$', '')
-        if (-not $version) { $version = '2.4.0' }
+        if (-not $version) { $version = '2.4.1' }
     } elseif (Test-Path $srcDll) {
         $version = (Get-Item $srcDll).VersionInfo.ProductVersion -replace '\+.*$', ''
     } else {
