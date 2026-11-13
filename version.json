@@ -2,6 +2,6 @@
   "product": "DualMix",
   "version": "2.4.0",
   "url": "https://github.com/gamebaiters/dualmix/releases/download/v2.4.0/DualMix-2.4.0-win-x64.zip",
-  "sha256": "a70b38b3532f60dd41764aca5b81b1ac511e7412a20d0dc9c56afffce00c1e0f",
-  "notes": "Merge rust-rewrite: DualMix v2.4.0 native Rust rewrite"
+  "sha256": "69b9b7b42c85c2a1e9e17c1fe97f9fc160939bf2fb3f70828cd0ea774bb14827",
+  "notes": "ci(release): install NSIS on windows-latest and require DualMix-Setup installer"
 }
