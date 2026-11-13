@@ -1,4 +1,5 @@
-//! Speaker-position channel mapping (Mono, Stereo, Quad, 5.1, 7.1) for planar float buffers.
+//! Speaker-position channel mapping (source → output), 1:1 port of C# `DualMix.Audio.ChannelMap`.
+//! Matched speakers are copied unchanged (no normalisation); missing speakers are folded down ITU-R BS.775 style.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AudioFormatDesc {
@@ -24,165 +25,196 @@ impl AudioFormatDesc {
             _ => 0,
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct ChannelMap {
-    src_channels: usize,
-    dst_channels: usize,
-    pub is_identity: bool,
-    /// Matrix entries `weights[dst_ch][src_ch]` stored flattened (`dst * src_channels + src`).
-    weights: Vec<f32>,
-}
+    /// Same format as 32-bit float (the shared-mode mix format of the Windows engine).
+    pub fn as_float_mix(self) -> Self {
+        Self { bits: 32, valid_bits: 32, is_float: true, ..self }
+    }
 
-fn speaker_bits(channels: usize, mask: u32) -> Vec<u32> {
-    let m = if mask == 0 { AudioFormatDesc::default_mask(channels) } else { mask };
-    let mut bits = Vec::with_capacity(channels);
-    for bit in 0..32u32 {
-        let flag = 1u32 << bit;
-        if (m & flag) != 0 {
-            bits.push(flag);
-            if bits.len() == channels {
-                break;
-            }
-        }
+    pub fn same_layout(&self, o: &Self) -> bool {
+        self.channels == o.channels && self.sample_rate == o.sample_rate && self.channel_mask == o.channel_mask
     }
-    while bits.len() < channels {
-        bits.push(0);
-    }
-    bits
 }
 
 const FL: u32 = 0x1;
 const FR: u32 = 0x2;
 const FC: u32 = 0x4;
+const LFE: u32 = 0x8;
 const BL: u32 = 0x10;
 const BR: u32 = 0x20;
+const FLC: u32 = 0x40;
+const FRC: u32 = 0x80;
+const BC: u32 = 0x100;
 const SL: u32 = 0x200;
 const SR: u32 = 0x400;
 
+#[derive(Debug, Clone)]
+pub struct ChannelMap {
+    routes: Vec<(usize, usize, f32)>,
+    pub is_identity: bool,
+}
+
+fn positions(f: &AudioFormatDesc) -> Vec<u32> {
+    // No mask (e.g. a 16-channel "direct out" device): the first channels follow the standard order
+    // FL FR FC LFE BL BR SL SR; the rest carry nothing.
+    let mask = if f.channel_mask == 0 { AudioFormatDesc::default_mask(f.channels.min(8)) } else { f.channel_mask };
+    let mut list = vec![0u32; f.channels];
+    let mut n = 0;
+    for b in 0..32 {
+        if n >= f.channels {
+            break;
+        }
+        let bit = 1u32 << b;
+        if mask & bit != 0 {
+            list[n] = bit;
+            n += 1;
+        }
+    }
+    list
+}
+
 impl ChannelMap {
-    pub fn create(src: AudioFormatDesc, dst: AudioFormatDesc) -> Self {
-        let s_bits = speaker_bits(src.channels, src.channel_mask);
-        let d_bits = speaker_bits(dst.channels, dst.channel_mask);
-        if src.channels == dst.channels && s_bits == d_bits {
-            let mut weights = vec![0.0f32; dst.channels * src.channels];
-            for c in 0..src.channels {
-                weights[c * src.channels + c] = 1.0;
+    pub fn create(input: AudioFormatDesc, output: AudioFormatDesc) -> Self {
+        let in_pos = positions(&input);
+        let out_pos = positions(&output);
+        let out_index = |bit: u32| out_pos.iter().position(|&p| p == bit);
+        let mut routes: Vec<(usize, usize, f32)> = Vec::new();
+        const M3: f32 = 0.707_106_77;
+
+        if input.channels == 1 {
+            // Mono: centre if available, otherwise both front speakers at full level (like Windows).
+            match out_index(FC) {
+                Some(c) if output.channels > 2 => routes.push((c, 0, 1.0)),
+                _ => {
+                    let l = out_index(FL);
+                    let r = out_index(FR);
+                    if let Some(l) = l {
+                        routes.push((l, 0, 1.0));
+                    }
+                    if let Some(r) = r {
+                        routes.push((r, 0, 1.0));
+                    }
+                    if l.is_none() && r.is_none() {
+                        routes.push((0, 0, 1.0));
+                    }
+                }
             }
-            return Self {
-                src_channels: src.channels,
-                dst_channels: dst.channels,
-                is_identity: true,
-                weights,
-            };
+            return Self::build(routes, &input, &output);
         }
 
-        let mut weights = vec![0.0f32; dst.channels * src.channels];
-        let set_w = |w: &mut [f32], d: usize, s: usize, val: f32| {
-            w[d * src.channels + s] = val;
-        };
-
-        let dst_idx = |bit: u32| -> Option<usize> { d_bits.iter().position(|&b| b == bit) };
-
-        for (si, &sbit) in s_bits.iter().enumerate() {
-            if let Some(di) = dst_idx(sbit) {
-                set_w(&mut weights, di, si, 1.0);
+        for (i, &bit) in in_pos.iter().enumerate() {
+            if bit == 0 {
                 continue;
             }
-            match sbit {
-                // Mono / center fallback to FL + FR at -3 dB if no center speaker
+            if let Some(o) = out_index(bit) {
+                routes.push((o, i, 1.0));
+                continue;
+            }
+            let mut to = |target: u32, w: f32| {
+                if let Some(t) = out_index(target) {
+                    routes.push((t, i, w));
+                }
+            };
+            let has = |b: u32| out_pos.contains(&b);
+            match bit {
                 FC => {
-                    if let (Some(fl), Some(fr)) = (dst_idx(FL), dst_idx(FR)) {
-                        let g = std::f32::consts::FRAC_1_SQRT_2;
-                        set_w(&mut weights, fl, si, g);
-                        set_w(&mut weights, fr, si, g);
-                    }
+                    to(FL, M3);
+                    to(FR, M3);
                 }
-                // Side L/R fold into Back L/R (e.g. 7.1 -> 5.1) or Front L/R (-> stereo)
-                SL => {
-                    if let Some(bl) = dst_idx(BL) {
-                        set_w(&mut weights, bl, si, 1.0);
-                    } else if let Some(fl) = dst_idx(FL) {
-                        set_w(&mut weights, fl, si, std::f32::consts::FRAC_1_SQRT_2);
-                    }
-                }
-                SR => {
-                    if let Some(br) = dst_idx(BR) {
-                        set_w(&mut weights, br, si, 1.0);
-                    } else if let Some(fr) = dst_idx(FR) {
-                        set_w(&mut weights, fr, si, std::f32::consts::FRAC_1_SQRT_2);
-                    }
-                }
+                LFE => {} // dropped (as Windows does on outputs without a subwoofer)
                 BL => {
-                    if let Some(sl) = dst_idx(SL) {
-                        set_w(&mut weights, sl, si, 1.0);
-                    } else if let Some(fl) = dst_idx(FL) {
-                        set_w(&mut weights, fl, si, std::f32::consts::FRAC_1_SQRT_2);
-                    }
+                    if has(SL) { to(SL, 1.0) } else { to(FL, M3) }
                 }
                 BR => {
-                    if let Some(sr) = dst_idx(SR) {
-                        set_w(&mut weights, sr, si, 1.0);
-                    } else if let Some(fr) = dst_idx(FR) {
-                        set_w(&mut weights, fr, si, std::f32::consts::FRAC_1_SQRT_2);
+                    if has(SR) { to(SR, 1.0) } else { to(FR, M3) }
+                }
+                SL => {
+                    if has(BL) { to(BL, 1.0) } else { to(FL, M3) }
+                }
+                SR => {
+                    if has(BR) { to(BR, 1.0) } else { to(FR, M3) }
+                }
+                FLC => to(FL, 1.0),
+                FRC => to(FR, 1.0),
+                BC => {
+                    if has(BL) && has(BR) {
+                        to(BL, M3);
+                        to(BR, M3);
+                    } else if has(SL) && has(SR) {
+                        to(SL, M3);
+                        to(SR, M3);
+                    } else {
+                        to(FL, 0.5);
+                        to(FR, 0.5);
                     }
                 }
-                _ => {}
-            }
-        }
-
-        Self {
-            src_channels: src.channels,
-            dst_channels: dst.channels,
-            is_identity: false,
-            weights,
-        }
-    }
-
-    /// Mixes `frames` planar source samples into interleaved output buffer with smooth linear gain ramp.
-    pub fn mix_into(
-        &self,
-        planar_src: &[Vec<f32>],
-        interleaved_dst: &mut [f32],
-        frames: usize,
-        gain_start: f32,
-        gain_end: f32,
-    ) {
-        let step = if frames > 1 {
-            (gain_end - gain_start) / frames as f32
-        } else {
-            0.0
-        };
-        if self.is_identity {
-            let ch = self.dst_channels;
-            for f in 0..frames {
-                let g = gain_start + step * f as f32;
-                let base = f * ch;
-                for c in 0..ch {
-                    interleaved_dst[base + c] += planar_src[c][f] * g;
+                FL | FR => to(FC, 1.0), // mono output
+                _ => {
+                    to(FL, 0.5);
+                    to(FR, 0.5);
                 }
             }
-            return;
         }
-        let dch = self.dst_channels;
-        let sch = self.src_channels;
-        for f in 0..frames {
-            let g = gain_start + step * f as f32;
-            let base = f * dch;
-            for dc in 0..dch {
-                let row = &self.weights[dc * sch..(dc + 1) * sch];
-                let mut acc = 0.0f32;
-                for sc in 0..sch {
-                    let w = row[sc];
-                    if w != 0.0 {
-                        acc += planar_src[sc][f] * w;
+        // Positionless outputs (mask 0 / unknown): straight 1:1 copy.
+        if routes.is_empty() {
+            for i in 0..input.channels.min(output.channels) {
+                routes.push((i, i, 1.0));
+            }
+        }
+        Self::build(routes, &input, &output)
+    }
+
+    fn build(routes: Vec<(usize, usize, f32)>, input: &AudioFormatDesc, output: &AudioFormatDesc) -> Self {
+        let identity = input.channels == output.channels
+            && routes.len() == input.channels
+            && routes.iter().all(|&(o, i, w)| o == i && w == 1.0);
+        Self { routes, is_identity: identity }
+    }
+
+    /// Adds the planar source (with a linear gain ramp) into the interleaved mix. Returns the post-gain peak.
+    pub fn mix_into(&self, planar: &[Vec<f32>], mix: &mut [f32], frames: usize, out_ch: usize, from_gain: f32, to_gain: f32) -> f32 {
+        let mut peak = 0f32;
+        let ramp = from_gain != to_gain;
+        if !ramp && to_gain == 0.0 {
+            return 0.0;
+        }
+        let step = if ramp && frames > 0 { (to_gain - from_gain) / frames as f32 } else { 0.0 };
+        for &(o, i, w) in &self.routes {
+            let src = &planar[i];
+            if !ramp && to_gain == 1.0 && w == 1.0 {
+                // Unity: exact copy-add, no arithmetic on the samples.
+                let mut idx = o;
+                for &s in &src[..frames] {
+                    mix[idx] += s;
+                    let a = s.abs();
+                    if a > peak {
+                        peak = a;
                     }
+                    idx += out_ch;
                 }
-                interleaved_dst[base + dc] += acc * g;
+            } else {
+                let mut g = from_gain;
+                let mut idx = o;
+                for &x in &src[..frames] {
+                    let s = x * (if ramp { g } else { to_gain }) * w;
+                    mix[idx] += s;
+                    let a = s.abs();
+                    if a > peak {
+                        peak = a;
+                    }
+                    g += step;
+                    idx += out_ch;
+                }
             }
         }
+        peak
     }
+}
+
+/// Largest absolute sample value.
+#[inline]
+pub fn peak(data: &[f32]) -> f32 {
+    data.iter().fold(0f32, |p, &s| p.max(s.abs()))
 }
 
 #[cfg(test)]
@@ -200,12 +232,23 @@ mod tests {
 
         let planar = vec![vec![0.25f32], vec![-0.5f32]];
         let mut mix = vec![0.0f32; 6];
-        ChannelMap::create(st, s51).mix_into(&planar, &mut mix, 1, 1.0, 1.0);
+        let p = ChannelMap::create(st, s51).mix_into(&planar, &mut mix, 1, 6, 1.0, 1.0);
         assert_eq!(mix, vec![0.25, -0.5, 0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(p, 0.5);
 
         let p71: Vec<Vec<f32>> = (1..=8).map(|i| vec![0.1 * i as f32]).collect();
         let mut mix51 = vec![0.0f32; 6];
-        ChannelMap::create(s71, s51).mix_into(&p71, &mut mix51, 1, 1.0, 1.0);
+        ChannelMap::create(s71, s51).mix_into(&p71, &mut mix51, 1, 6, 1.0, 1.0);
         assert!(mix51[4] > 0.5 && mix51[5] > 0.6);
+
+        // 5.1 -> stereo: centre folded at -3 dB, LFE dropped.
+        let p51: Vec<Vec<f32>> = vec![vec![0.0], vec![0.0], vec![1.0], vec![1.0], vec![0.0], vec![0.0]];
+        let mut st_mix = vec![0.0f32; 2];
+        ChannelMap::create(s51, st).mix_into(&p51, &mut st_mix, 1, 2, 1.0, 1.0);
+        assert!((st_mix[0] - 0.707_106_77).abs() < 1e-6 && (st_mix[1] - 0.707_106_77).abs() < 1e-6);
+
+        // Gain ramp and mute.
+        let mut m = vec![0.0f32; 2];
+        assert_eq!(ChannelMap::create(st, st).mix_into(&planar, &mut m, 1, 2, 0.0, 0.0), 0.0);
     }
 }

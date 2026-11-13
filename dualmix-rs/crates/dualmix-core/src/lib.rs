@@ -5,6 +5,7 @@
 pub mod channel_map;
 pub mod knob;
 pub mod loc;
+pub mod log;
 pub mod math;
 pub mod resampler;
 pub mod ringbuf;

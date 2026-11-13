@@ -35,7 +35,7 @@ impl KnobAction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KnobConfig {
     pub enabled: bool,
     pub target: KnobTarget,
@@ -225,5 +225,93 @@ mod tests {
         assert!(swallow_f13);
         assert_eq!(act_f13.unwrap().kind, KnobActionKind::MixTowardsGame);
         assert!(!state.handle_key(0x41, true, false, false, HotkeyModifiers::NONE).0);
+    }
+}
+
+// ------------------------------------------------------------------------------------------ key names
+
+/// Keys that make sense as a shortcut on their own (pressing them while typing does no harm).
+pub fn usable_alone(vk: i32) -> bool {
+    (0x70..=0x87).contains(&vk) || matches!(vk, 0x13 | 0x91 | 0x2C | 0x2D) || (0xA6..=0xB7).contains(&vk)
+}
+
+pub fn is_modifier_key(vk: i32) -> bool {
+    matches!(vk, 0x10 | 0x11 | 0x12 | 0x5B | 0x5C | 0xA0 | 0xA1 | 0xA2 | 0xA3 | 0xA4 | 0xA5)
+}
+
+pub fn chord_name(vk: i32, mods: HotkeyModifiers) -> String {
+    let mut s = String::new();
+    if mods.contains(HotkeyModifiers::CTRL) {
+        s.push_str("Ctrl + ");
+    }
+    if mods.contains(HotkeyModifiers::ALT) {
+        s.push_str("Alt + ");
+    }
+    if mods.contains(HotkeyModifiers::SHIFT) {
+        s.push_str(&crate::loc::get("Knob.Key.Shift"));
+        s.push_str(" + ");
+    }
+    if mods.contains(HotkeyModifiers::WIN) {
+        s.push_str("Win + ");
+    }
+    if vk == 0 {
+        return if s.is_empty() { crate::loc::get("Knob.Key.NoneFem") } else { s.trim_end_matches([' ', '+']).to_string() };
+    }
+    s.push_str(&key_name(vk));
+    s
+}
+
+pub fn key_name(vk: i32) -> String {
+    use crate::loc::get;
+    if vk == 0 {
+        return get("Knob.Key.None");
+    }
+    if (0x70..=0x87).contains(&vk) {
+        return format!("F{}", vk - 0x6F);
+    }
+    if (0x30..=0x39).contains(&vk) || (0x41..=0x5A).contains(&vk) {
+        return (vk as u8 as char).to_string();
+    }
+    if (0x60..=0x69).contains(&vk) {
+        return crate::loc::fmt("Knob.Key.Num", &[&(vk - 0x60).to_string()]);
+    }
+    match vk {
+        VK_VOLUME_UP => "Volume +".into(),
+        VK_VOLUME_DOWN => "Volume −".into(),
+        VK_VOLUME_MUTE => get("Knob.Key.PressMute"),
+        0xB0 => get("Knob.Key.NextTrack"),
+        0xB1 => get("Knob.Key.PrevTrack"),
+        0xB2 => "Stop".into(),
+        0xB3 => get("Knob.Key.PlayPause"),
+        0x13 => get("Knob.Key.Pause"),
+        0x91 => get("Knob.Key.ScrollLock"),
+        0x2C => get("Knob.Key.PrtSc"),
+        0x2D => "Ins".into(),
+        0x2E => get("Knob.Key.Del"),
+        0x24 => "Home".into(),
+        0x23 => get("Knob.Key.End"),
+        0x21 => get("Knob.Key.PgUp"),
+        0x22 => get("Knob.Key.PgDn"),
+        0x20 => get("Knob.Key.Space"),
+        0x0D => get("Knob.Key.Enter"),
+        0x1B => "Esc".into(),
+        0x09 => "Tab".into(),
+        0x08 => "Backspace".into(),
+        0x25 => "←".into(),
+        0x26 => "↑".into(),
+        0x27 => "→".into(),
+        0x28 => "↓".into(),
+        0xDC => "\\".into(),
+        0xBC => ",".into(),
+        0xBE => ".".into(),
+        0xBD => "-".into(),
+        0xBB => "+".into(),
+        0x6A => "Num *".into(),
+        0x6B => "Num +".into(),
+        0x6D => "Num -".into(),
+        0x6E => "Num .".into(),
+        0x6F => "Num /".into(),
+        0x5D => "Menu".into(),
+        _ => format!("0x{vk:02X}"),
     }
 }
