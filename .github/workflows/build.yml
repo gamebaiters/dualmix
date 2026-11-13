@@ -1,11 +1,11 @@
-# Auto-builder (CI): runs on every push to main and on pull requests.
-# Verifies the .NET 10 Windows build, PowerShell setup scripts, NSIS installer packaging,
-# and uploads the resulting artifacts for testing.
+# Auto-builder (CI): runs on push to main / master / rust-rewrite and on pull requests.
+# Builds the native Rust binary (`dualmix-rs`), runs workspace tests, verifies PowerShell scripts,
+# packages DualMix (zip + NSIS installer + version.json), and uploads artifacts.
 name: build
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, rust-rewrite]
     paths-ignore:
       - 'docs/**'
       - '**.md'
@@ -21,16 +21,17 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          dotnet-version: '10.0.x'
+          targets: x86_64-pc-windows-msvc
 
-      - name: Install NSIS and zip
-        run: sudo apt-get update -q && sudo apt-get install -y -q nsis zip
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dualmix-rs
 
       - name: Check PowerShell scripts syntax
         shell: pwsh
@@ -46,9 +47,17 @@ jobs:
             Write-Host "OK: $($f.Name)"
           }
 
-      - name: Build package and installer
+      - name: Run unit tests & build native release binary
+        shell: pwsh
         run: |
-          tools/build-release.sh --notes "CI build (${GITHUB_SHA::7})"
+          cargo test --manifest-path dualmix-rs/Cargo.toml --workspace
+          cargo build --manifest-path dualmix-rs/Cargo.toml --release
+          ./dualmix-rs/target/release/DualMix.exe --version
+
+      - name: Build package and NSIS installer
+        shell: bash
+        run: |
+          tools/build-release.sh --exe dualmix-rs/target/release/DualMix.exe --notes "CI build (${GITHUB_SHA::7})"
           (cd out/release && sha256sum -c SHA256SUMS.txt)
           python3 -c "import json; d = json.load(open('out/release/version.json')); assert d['product'] == 'DualMix' and len(d['sha256']) == 64"
 

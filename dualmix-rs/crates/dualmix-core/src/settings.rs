@@ -415,6 +415,33 @@ impl Settings {
     }
 }
 
+static READ_ONLY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub struct SettingsStore;
+
+impl SettingsStore {
+    pub fn set_read_only(v: bool) {
+        READ_ONLY.store(v, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn is_read_only() -> bool {
+        READ_ONLY.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn load() -> Settings {
+        Settings::load_file(&crate::log::settings_file())
+    }
+
+    pub fn save(s: &Settings) {
+        if Self::is_read_only() {
+            return;
+        }
+        if let Err(e) = s.save_file(&crate::log::settings_file()) {
+            crate::log::error(format!("Cannot save settings | {e}"));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

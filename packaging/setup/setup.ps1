@@ -112,7 +112,14 @@ function Stop-DualMix {
     Start-Sleep -Milliseconds 500
 }
 
-function Start-DualMix([string]$hostExe, [bool]$hidden) {
+function Start-DualMix([string]$hostExe, [bool]$isNative, [bool]$hidden) {
+    if ($isNative) {
+        $exe = Join-Path $dest 'DualMix.exe'
+        $args = @('--supervise')
+        if ($hidden) { $args += '--tray' }
+        Start-Process $exe -ArgumentList $args -WorkingDirectory $dest
+        return
+    }
     $arguments = "--headless `"$hostExe`" `"$(Join-Path $dest 'DualMix.dll')`" --supervise"
     if ($hidden) { $arguments += ' --tray' }
     Start-Process $conhost -ArgumentList $arguments -WorkingDirectory $dest
@@ -127,36 +134,53 @@ function Move-Folder([string]$from, [string]$to) {
 }
 
 $hadOld = $false
+$isNative = $false
 try {
-    if (-not (Test-Path (Join-Path $Source 'DualMix.dll'))) { throw (T "Incomplete package: missing $Source\DualMix.dll" "Pacchetto incompleto: manca $Source\DualMix.dll") }
-    $version = (Get-Item (Join-Path $Source 'DualMix.dll')).VersionInfo.ProductVersion -replace '\+.*$', ''
+    $srcExe = Join-Path $Source 'DualMix.exe'
+    $srcDll = Join-Path $Source 'DualMix.dll'
+    if ((Test-Path $srcExe) -and -not (Test-Path $srcDll)) {
+        $isNative = $true
+        $vi = (Get-Item $srcExe).VersionInfo
+        $version = (($vi.ProductVersion, $vi.FileVersion | Where-Object { $_ } | Select-Object -First 1) -replace '\+.*$', '')
+        if (-not $version) { $version = '2.4.0' }
+    } elseif (Test-Path $srcDll) {
+        $version = (Get-Item $srcDll).VersionInfo.ProductVersion -replace '\+.*$', ''
+    } else {
+        throw (T "Incomplete package: missing $Source\DualMix.exe" "Pacchetto incompleto: manca $Source\DualMix.exe")
+    }
     $updateNote = if ($Update) { T ' (automatic update)' ' (aggiornamento automatico)' } else { '' }
     Say "=== $(T "DualMix $version Setup" "Setup di DualMix $version")$updateNote ==="
 
-    # 1. .NET 10 Desktop runtime
-    $hostExe = Find-DesktopHost
-    if (-not $hostExe) {
-        Say (T '.NET 10 Desktop runtime not found: downloading from Microsoft into %USERPROFILE%\.dotnet (current user only)...' 'Runtime .NET 10 Desktop non trovato: lo scarico da Microsoft in %USERPROFILE%\.dotnet (solo per questo utente)...')
-        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        $script = Join-Path $env:TEMP 'dotnet-install.ps1'
-        Get-InstallScript $script
-        # a connection that drops half way is tried again: the script resumes with what is missing
-        for ($try = 1; $try -le 4 -and -not $hostExe; $try++) {
-            try {
-                & $script -Channel 10.0 -Runtime dotnet -InstallDir $userDotnet -NoPath
-                & $script -Channel 10.0 -Runtime windowsdesktop -InstallDir $userDotnet -NoPath
-            } catch { Say (T "Attempt $try failed: $($_.Exception.Message)" "Tentativo $try non riuscito: $($_.Exception.Message)"); Start-Sleep -Seconds 3 }
-            $hostExe = Find-DesktopHost
+    # 1. Runtime check (skipped for standalone native Rust DualMix.exe)
+    $hostExe = $null
+    if ($isNative) {
+        Say (T 'Native executable: no .NET runtime download required.' 'Eseguibile nativo: nessun runtime .NET da scaricare.')
+    } else {
+        $hostExe = Find-DesktopHost
+        if (-not $hostExe) {
+            Say (T '.NET 10 Desktop runtime not found: downloading from Microsoft into %USERPROFILE%\.dotnet (current user only)...' 'Runtime .NET 10 Desktop non trovato: lo scarico da Microsoft in %USERPROFILE%\.dotnet (solo per questo utente)...')
+            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+            $script = Join-Path $env:TEMP 'dotnet-install.ps1'
+            Get-InstallScript $script
+            # a connection that drops half way is tried again: the script resumes with what is missing
+            for ($try = 1; $try -le 4 -and -not $hostExe; $try++) {
+                try {
+                    & $script -Channel 10.0 -Runtime dotnet -InstallDir $userDotnet -NoPath
+                    & $script -Channel 10.0 -Runtime windowsdesktop -InstallDir $userDotnet -NoPath
+                } catch { Say (T "Attempt $try failed: $($_.Exception.Message)" "Tentativo $try non riuscito: $($_.Exception.Message)"); Start-Sleep -Seconds 3 }
+                $hostExe = Find-DesktopHost
+            }
+            if (-not $hostExe) { throw (T 'Could not install the .NET 10 Desktop runtime (internet access required). Install it from https://dotnet.microsoft.com/download/dotnet/10.0 and try again.' 'Impossibile installare il runtime .NET 10 Desktop (serve internet). Installalo da https://dotnet.microsoft.com/download/dotnet/10.0 e riprova.') }
         }
-        if (-not $hostExe) { throw (T 'Could not install the .NET 10 Desktop runtime (internet access required). Install it from https://dotnet.microsoft.com/download/dotnet/10.0 and try again.' 'Impossibile installare il runtime .NET 10 Desktop (serve internet). Installalo da https://dotnet.microsoft.com/download/dotnet/10.0 e riprova.') }
+        Say "$(T '.NET runtime' 'Runtime .NET'): $hostExe"
     }
-    Say "$(T '.NET runtime' 'Runtime .NET'): $hostExe"
 
     # 2. the new program, complete, next to the old one
     foreach ($leftover in @($new, $old)) { if (Test-Path $leftover) { Remove-Item $leftover -Recurse -Force } }
     Copy-Item -LiteralPath $Source -Destination $new -Recurse
     Copy-Item (Join-Path $here 'uninstall.ps1') (Join-Path $new 'uninstall.ps1') -Force
-    if (-not (Test-Path (Join-Path $new 'DualMix.dll'))) { throw (T 'Failed to copy application files.' 'Copia del programma non riuscita.') }
+    $copiedOk = if ($isNative) { Test-Path (Join-Path $new 'DualMix.exe') } else { Test-Path (Join-Path $new 'DualMix.dll') }
+    if (-not $copiedOk) { throw (T 'Failed to copy application files.' 'Copia del programma non riuscita.') }
 
     # 3. close DualMix; the first time, clear away the installation made the old way
     $previous = (Get-ItemProperty $uninstallKey -ErrorAction SilentlyContinue).DisplayVersion
@@ -178,13 +202,19 @@ try {
 
     # 5. Start menu shortcut (windowless, supervised: the same way the sign-in task starts DualMix)
     $dll = Join-Path $dest 'DualMix.dll'
+    $exe = Join-Path $dest 'DualMix.exe'
     $icon = Join-Path $dest 'dualmix.ico'
-    if (-not (Test-Path $icon)) { $icon = Join-Path $dest 'DualMix.exe' }
+    if (-not (Test-Path $icon)) { $icon = $exe }
     $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'DualMix.lnk'
     $shell = New-Object -ComObject WScript.Shell
     $sc = $shell.CreateShortcut($lnk)
-    $sc.TargetPath = $conhost
-    $sc.Arguments = "--headless `"$hostExe`" `"$dll`" --supervise"
+    if ($isNative) {
+        $sc.TargetPath = $exe
+        $sc.Arguments = "--supervise"
+    } else {
+        $sc.TargetPath = $conhost
+        $sc.Arguments = "--headless `"$hostExe`" `"$dll`" --supervise"
+    }
     $sc.WorkingDirectory = $dest
     $sc.IconLocation = "$icon,0"
     $sc.Description = T 'DualMix - Game/Chat audio mixer' 'DualMix - mixer Game/Chat'
@@ -208,7 +238,7 @@ try {
 
     # 6. start (DualMix puts its own sign-in task back by itself when "Start with Windows" is on)
     if (-not $NoStart) {
-        Start-DualMix $hostExe ([bool]($Update -or $Silent))
+        Start-DualMix "$hostExe" $isNative ([bool]($Update -or $Silent))
         Say (T 'DualMix started (tray icon in notification area).' 'DualMix avviato (icona nell''area di notifica).')
     }
     Say "=== $(T "DualMix $version installed" "DualMix $version installato") ==="
@@ -220,9 +250,13 @@ catch {
     try {
         if ($hadOld -and (Test-Path $old) -and -not (Test-Path $dest)) { Move-Folder $old $dest; Say (T 'Previous version restored.' 'Versione precedente ripristinata.') }
         if (Test-Path $new) { Remove-Item $new -Recurse -Force -ErrorAction SilentlyContinue }
-        if ($Update -and -not (Get-DualMixProcesses) -and (Test-Path (Join-Path $dest 'DualMix.dll'))) {
-            $h = Find-DesktopHost
-            if ($h) { Start-DualMix $h $true; Say (T 'DualMix restarted with the previous version.' 'DualMix riavviato con la versione precedente.') }
+        if ($Update -and -not (Get-DualMixProcesses)) {
+            if ((Test-Path (Join-Path $dest 'DualMix.exe')) -and -not (Test-Path (Join-Path $dest 'DualMix.dll'))) {
+                Start-DualMix "" $true $true; Say (T 'DualMix restarted with the previous version.' 'DualMix riavviato con la versione precedente.')
+            } elseif (Test-Path (Join-Path $dest 'DualMix.dll')) {
+                $h = Find-DesktopHost
+                if ($h) { Start-DualMix $h $false $true; Say (T 'DualMix restarted with the previous version.' 'DualMix riavviato con la versione precedente.') }
+            }
         }
     } catch { Say "$(T 'ERROR during rollback' 'ERRORE nel ripristino'): $($_.Exception.Message)" }
     exit 1

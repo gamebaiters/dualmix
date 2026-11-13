@@ -5,7 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+dualmix-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+webview2-com.workspace = true
 windows.workspace = true
 windows-core.workspace = true
