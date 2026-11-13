@@ -83,6 +83,38 @@
                 </Border>
             </ui:CardControl>
 
+            <TextBlock Text="Aggiornamenti" Style="{StaticResource SectionHeader}" />
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="ArrowDownload24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock x:Name="UpdateTitle" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="UpdateText" Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:Button x:Name="UpdateButton" Content="Controlla ora" Click="Update_Click" MinWidth="120" />
+            </ui:CardControl>
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="ArrowSync24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="Nuove versioni" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="Automatici: una nuova versione trovata all'avvio si installa da sola, e DualMix riparte. Avvisa: te lo dice e aspetta te." Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <Border Style="{StaticResource SegmentHost}">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="UpAuto" Style="{StaticResource SegmentItem}" Content="Automatici" Tag="Auto" Checked="UpdateMode_Checked" />
+                        <RadioButton x:Name="UpNotify" Style="{StaticResource SegmentItem}" Content="Avvisa" Tag="Notify" Checked="UpdateMode_Checked" />
+                        <RadioButton x:Name="UpOff" Style="{StaticResource SegmentItem}" Content="Mai" Tag="Off" Checked="UpdateMode_Checked" />
+                    </StackPanel>
+                </Border>
+            </ui:CardControl>
+
             <TextBlock Text="Assistenza" Style="{StaticResource SectionHeader}" />
             <ui:CardControl Margin="0,0,0,4">
                 <ui:CardControl.Icon>

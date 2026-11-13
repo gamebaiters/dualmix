@@ -114,6 +114,40 @@
 
         <ui:CardControl Margin="0,0,0,4">
             <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="Rocket24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="Funzione all'avvio" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="A ogni avvio di DualMix (quindi a ogni accensione del PC) la rotella riparte da qui." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ComboBox x:Name="StartFunction" MinWidth="190" SelectionChanged="StartFunction_Changed"
+                      AutomationProperties.Name="Funzione della rotella all'avvio">
+                <ComboBoxItem Content="Volume generale" Tag="Volume" />
+                <ComboBoxItem Content="Mix Game/Chat" Tag="Mix" />
+                <ComboBoxItem Content="Volume Game" Tag="Game" />
+                <ComboBoxItem Content="Volume Chat" Tag="Chat" />
+                <ComboBoxItem Content="L'ultima usata" Tag="Last" />
+            </ComboBox>
+        </ui:CardControl>
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
+                <ui:SymbolIcon Symbol="SpeakerMute24" />
+            </ui:CardControl.Icon>
+            <ui:CardControl.Header>
+                <StackPanel>
+                    <TextBlock Text="Sul mix, premere la rotella silenzia tutto" Style="{StaticResource BodyText}" />
+                    <TextBlock Text="Una pressione toglie (o rimette) tutto l'audio. Se disattivato, la pressione riporta il mix su «Bilanciato»." Style="{StaticResource CaptionText}" />
+                </StackPanel>
+            </ui:CardControl.Header>
+            <ui:ToggleSwitch x:Name="MixPressMutes" Checked="Option_Changed" Unchecked="Option_Changed"
+                             AutomationProperties.Name="Sul mix la pressione della rotella silenzia tutto" />
+        </ui:CardControl>
+
+        <ui:CardControl Margin="0,0,0,4">
+            <ui:CardControl.Icon>
                 <ui:SymbolIcon Symbol="Power24" />
             </ui:CardControl.Icon>
             <ui:CardControl.Header>

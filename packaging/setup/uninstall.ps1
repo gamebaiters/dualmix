@@ -67,6 +67,7 @@ Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'DualMix.lnk') -ErrorAction SilentlyContinue
 Remove-Item 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DualMix' -Recurse -ErrorAction SilentlyContinue
 Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "$dest.old", "$dest.new", (Join-Path $env:TEMP 'DualMix-update') -Recurse -Force -ErrorAction SilentlyContinue
 
 if ($RestoreDucking) {
     Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Multimedia\Audio' -Name 'UserDuckingPreference' -Value 1 -Type DWord

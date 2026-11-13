@@ -58,6 +58,9 @@ public partial class KnobPage : Page
         CtrlAlt.IsChecked = s.KnobCtrlAlternate;
         Enabled.IsChecked = s.KnobEnabled;
         Invert.IsChecked = s.KnobInvert;
+        MixPressMutes.IsChecked = s.KnobMixPressMutes;
+        foreach (ComboBoxItem item in StartFunction.Items)
+            if (item.Tag is string tag && tag == s.KnobStartFunction.ToString()) StartFunction.SelectedItem = item;
         Step.Value = Math.Round(s.KnobStep * 100);
         StepText.Text = $"{Step.Value:0}%";
         if (_capturing == null)
@@ -82,7 +85,7 @@ public partial class KnobPage : Page
             case KnobTarget.Mix:
                 left = "più Game, meno Chat";
                 right = "più Chat, meno Game";
-                press = "torna a «Bilanciato» (Game e Chat al 100%)";
+                press = _c.Settings.KnobMixPressMutes ? "silenzia / riattiva tutto l'audio" : "torna a «Bilanciato» (Game e Chat al 100%)";
                 note = "Compare l'indicatore di DualMix; il volume di Windows non cambia.";
                 break;
             case KnobTarget.Volume:
@@ -147,8 +150,17 @@ public partial class KnobPage : Page
         s.KnobCtrlAlternate = CtrlAlt.IsChecked == true;
         s.KnobEnabled = Enabled.IsChecked == true;
         s.KnobInvert = Invert.IsChecked == true;
+        s.KnobMixPressMutes = MixPressMutes.IsChecked == true;
         _c.KnobSettingsChanged();
         Describe(s.KnobTarget);
+    }
+
+    private void StartFunction_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || StartFunction.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+        if (!Enum.TryParse<KnobStartFunction>(tag, out var start)) return;
+        _c.Settings.KnobStartFunction = start;
+        _c.ScheduleSave();
     }
 
     private void Step_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)

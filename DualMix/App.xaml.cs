@@ -26,10 +26,14 @@ public partial class App : Application
     private TrayIcon? _tray;
     private MainWindow? _window;
     private OsdWindow? _osd;
+    private Updater? _updater;
+    private DispatcherTimer? _updateTimer;
+    private Version? _announcedUpdate;
     private bool _exiting;
 
     public static new App Current => (App)Application.Current;
     public Controller Controller => _controller!;
+    public Updater Updater => _updater!;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -139,6 +143,7 @@ public partial class App : Application
         if (Has("--accept-injected")) _controller.AcceptInjectedKeys = true;
         _controller.OsdRequested += info => ShowOsd(info);
         _controller.Start();
+        _updater = new Updater(settings, () => Dispatcher.BeginInvoke(_controller.ScheduleSave));
 
         if (snapshot)
         {
@@ -155,11 +160,55 @@ public partial class App : Application
 
         if (!tray || !settings.StartMinimized) ShowMainWindow();
 
+        // Updates: once a minute after the start (the network is up by then), then whenever a check is due.
+        _updateTimer = new DispatcherTimer(TimeSpan.FromMinutes(1), DispatcherPriority.Background, (_, _) =>
+        {
+            bool startup = _updateTimer!.Interval < TimeSpan.FromMinutes(30);
+            _updateTimer.Interval = TimeSpan.FromHours(1);
+            _ = AutoUpdateAsync(startup);
+        }, Dispatcher);
+
         SessionEnding += (_, _) =>
         {
             Log.Info("Windows session ending");
             try { _controller?.ShutdownAsync().Wait(4000); } catch { /* ignore */ }
         };
+    }
+
+    /// <summary>
+    /// The unattended update check. At start-up an update is installed right away when updates are automatic (the
+    /// PC has just been switched on: nothing is playing yet); one found later, in the middle of a game or a call, is
+    /// only announced, and is installed at the next start or from Generale → Aggiornamenti.
+    /// </summary>
+    private async Task AutoUpdateAsync(bool startup)
+    {
+        try
+        {
+            var s = _controller!.Settings;
+            if (_exiting || s.UpdateMode == UpdateMode.Off || _updater!.Busy) return;
+            bool due = s.UpdateNextCheck == null || DateTime.Now >= s.UpdateNextCheck.Value;
+            if (!due && !(startup && s.UpdateMode == UpdateMode.Auto)) return;
+
+            var info = await _updater.CheckAsync();
+            if (info == null || _exiting) return;
+            if (startup && s.UpdateMode == UpdateMode.Auto)
+            {
+                _tray?.ShowBalloon("Aggiornamento di DualMix", $"Installo la versione {info.Version}: DualMix si riavvia da solo tra un momento.");
+                await _updater.InstallAsync(info);
+            }
+            else if (_announcedUpdate != info.Version)
+            {
+                _announcedUpdate = info.Version;
+                _tray?.ShowBalloon($"È disponibile DualMix {info.Version}",
+                    s.UpdateMode == UpdateMode.Auto
+                        ? "Verrà installato al prossimo avvio. Per farlo subito: Generale → Aggiornamenti."
+                        : "Per installarlo: Generale → Aggiornamenti.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Automatic update check failed", ex);
+        }
     }
 
     /// <summary>Starts the windowless, supervised DualMix (see <see cref="AppPaths.BackgroundCommand"/>).</summary>
@@ -275,6 +324,7 @@ public partial class App : Application
         Log.Info("Exit requested");
         try
         {
+            _updateTimer?.Stop();
             _window?.CloseForReal();
             _osd?.Close();
             if (_controller != null) await _controller.ShutdownAsync();

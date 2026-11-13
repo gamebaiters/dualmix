@@ -46,6 +46,30 @@ public enum HotkeyModifiers
     Win = 8,
 }
 
+/// <summary>Function the knob has every time DualMix starts.</summary>
+public enum KnobStartFunction
+{
+    /// <summary>The one it had when DualMix was closed.</summary>
+    Last,
+    Mix,
+    Volume,
+    Game,
+    Chat,
+}
+
+/// <summary>What DualMix does about new versions.</summary>
+public enum UpdateMode
+{
+    /// <summary>Never looks for updates.</summary>
+    Off,
+
+    /// <summary>Looks for updates and tells the user; installs only when asked.</summary>
+    Notify,
+
+    /// <summary>Installs an update found at start-up by itself; one found later is announced.</summary>
+    Auto,
+}
+
 public enum LatencyMode
 {
     /// <summary>Smallest buffers, for gaming.</summary>
@@ -162,7 +186,16 @@ public sealed class Settings
     /// <summary>When false DualMix never touches the volume keys (Windows handles them).</summary>
     public bool KnobEnabled { get; set; } = true;
 
-    public KnobTarget KnobTarget { get; set; } = KnobTarget.Mix;
+    public KnobTarget KnobTarget { get; set; } = KnobTarget.Volume;
+
+    /// <summary>Function the knob goes back to at every start of DualMix (default: the general volume).</summary>
+    public KnobStartFunction KnobStartFunction { get; set; } = KnobStartFunction.Volume;
+
+    /// <summary>
+    /// On the function "Mix" a press of the knob mutes/unmutes everything (the real output). Off: it sets the mix
+    /// back to balanced, as DualMix did up to 2.1.
+    /// </summary>
+    public bool KnobMixPressMutes { get; set; } = true;
 
     /// <summary>Functions the "change knob function" shortcut cycles through.</summary>
     public List<KnobTarget> KnobCycle { get; set; } = new() { KnobTarget.Mix, KnobTarget.Volume };
@@ -203,6 +236,28 @@ public sealed class Settings
     public bool FirstRunDone { get; set; }
     public bool TrayHintShown { get; set; }
 
+    // ---- Updates --------------------------------------------------------------
+    public UpdateMode UpdateMode { get; set; } = UpdateMode.Auto;
+
+    /// <summary>
+    /// Where the version document is: an https address or a folder/file path. Null = the default
+    /// (<see cref="Updater.DefaultFeed"/>).
+    /// </summary>
+    public string? UpdateFeed { get; set; }
+
+    /// <summary>No automatic check before this moment (a day after a check, three days after "not now").</summary>
+    public DateTime? UpdateNextCheck { get; set; }
+
+    /// <summary>The function the knob starts with, or null to keep the last one.</summary>
+    public KnobTarget? StartTarget => KnobStartFunction switch
+    {
+        KnobStartFunction.Mix => KnobTarget.Mix,
+        KnobStartFunction.Volume => KnobTarget.Volume,
+        KnobStartFunction.Game => KnobTarget.Game,
+        KnobStartFunction.Chat => KnobTarget.Chat,
+        _ => null,
+    };
+
     public Settings Normalize()
     {
         Apps ??= new(StringComparer.OrdinalIgnoreCase);
@@ -218,6 +273,7 @@ public sealed class Settings
         ChatVolume = Clamp(ChatVolume, 0, 1);
         MixFloor = Clamp(MixFloor, 0, 0.9);
         KnobStep = Clamp(KnobStep, 0.01, 0.25);
+        if (string.IsNullOrWhiteSpace(UpdateFeed)) UpdateFeed = null;
         foreach (var r in Apps.Values) r.Volume = Clamp(r.Volume, 0, 1);
         return this;
     }

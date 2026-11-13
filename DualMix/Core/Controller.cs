@@ -120,6 +120,12 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
         Settings = settings;
         _ui = ui;
         _dryRun = dryRun;
+        // Every start begins on the same knob function (by default the general volume), whatever was left selected.
+        if (!dryRun && settings.StartTarget is { } start && settings.KnobTarget != start)
+        {
+            Log.Info($"Knob function at start: {start} (was {settings.KnobTarget})");
+            settings.KnobTarget = start;
+        }
         _rules = new RuleSet(settings);
         _gameAmp = MixMath.Taper(settings.GameVolume);
         _chatAmp = MixMath.Taper(settings.ChatVolume);
@@ -764,8 +770,9 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
-    /// A press of the knob: it acts at once (balanced mix / mute). A second press right after it means "double
-    /// press": the first one is taken back and the knob switches to its next function.
+    /// A press of the knob: it acts at once (mute; on the mix: mute everything, or balanced mix when
+    /// <see cref="Settings.KnobMixPressMutes"/> is off). A second press right after it means "double press": the
+    /// first one is taken back and the knob switches to its next function.
     /// </summary>
     private void OnKnobPress(KnobTarget target)
     {
@@ -783,13 +790,14 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
 
         switch (target)
         {
-            case KnobTarget.Mix:
+            case KnobTarget.Mix when !Settings.KnobMixPressMutes:
             {
                 var before = Settings.Mix;
                 ResetMix(true);
                 _undoPress = () => SetMix(before, false);
                 break;
             }
+            case KnobTarget.Mix: // one press mutes everything, exactly like on "Volume generale"
             case KnobTarget.Volume:
                 if (!_outputVolume.IsAvailable) { _undoPress = null; break; }
                 OutputMuted = !OutputMuted;

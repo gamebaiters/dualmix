@@ -10,3 +10,5 @@ publish/
 *.key
 *.pfx
 *.p12
+out/
+.nest-owns

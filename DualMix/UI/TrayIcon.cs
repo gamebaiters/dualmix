@@ -16,6 +16,9 @@ public sealed class TrayIcon : IDisposable
     private readonly Icon _appIcon;
     private readonly WinForms.ToolStripMenuItem _knobMenu;
     private readonly WinForms.ContextMenuStrip _menu;
+    private readonly Font _menuFont = new("Segoe UI", 9.5f);
+    private readonly Font _boldFont = new("Segoe UI", 9.5f, FontStyle.Bold);
+    private bool _disposed;
 
     public TrayIcon(Controller controller, Action open, Action exit)
     {
@@ -27,10 +30,10 @@ public sealed class TrayIcon : IDisposable
             Renderer = new WinForms.ToolStripProfessionalRenderer(new MenuColors(true)) { RoundedEdges = false },
             ShowImageMargin = false,
             ShowCheckMargin = true,
-            Font = new Font("Segoe UI", 9.5f),
+            Font = _menuFont,
         };
 
-        var openItem = new WinForms.ToolStripMenuItem("Apri DualMix", null, (_, _) => open()) { Font = new Font("Segoe UI", 9.5f, FontStyle.Bold) };
+        var openItem = new WinForms.ToolStripMenuItem("Apri DualMix", null, (_, _) => open()) { Font = _boldFont };
         _mixLabel = new WinForms.ToolStripMenuItem("") { Enabled = false };
         var allGame = new WinForms.ToolStripMenuItem("Tutto Game", null, (_, _) => _controller.SetMix(-1, false));
         var center = new WinForms.ToolStripMenuItem("Bilanciato", null, (_, _) => _controller.ResetMix());
@@ -136,9 +139,15 @@ public sealed class TrayIcon : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return; // called on exit and again when the application object goes away
+        _disposed = true;
         _controller.PropertyChanged -= OnControllerChanged;
         _icon.Visible = false;
         _icon.Dispose();
+        _menu.Dispose();
+        _menuFont.Dispose();
+        _boldFont.Dispose();
+        if (!ReferenceEquals(_appIcon, SystemIcons.Application)) _appIcon.Dispose();
     }
 
     private void ApplyTheme()

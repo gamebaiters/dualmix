@@ -6,15 +6,15 @@ namespace DualMix.Core;
 
 public static class AppPaths
 {
-    public static string DataDir
+    private static readonly Lazy<string> DataDirLazy = new(() =>
     {
-        get
-        {
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DualMix");
-            Directory.CreateDirectory(dir);
-            return dir;
-        }
-    }
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DualMix");
+        Directory.CreateDirectory(dir);
+        return dir;
+    });
+
+    /// <summary>%APPDATA%\DualMix (created on first use; every log line asks for it, so it is worked out once).</summary>
+    public static string DataDir => DataDirLazy.Value;
 
     public static string SettingsFile => Path.Combine(DataDir, "settings.json");
     public static string LogFile => Path.Combine(DataDir, "dualmix.log");

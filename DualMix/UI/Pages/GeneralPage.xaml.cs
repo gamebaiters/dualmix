@@ -18,7 +18,54 @@ public partial class GeneralPage : Page
     {
         _c = App.Current.Controller;
         InitializeComponent();
-        Loaded += (_, _) => Load();
+        Loaded += (_, _) =>
+        {
+            App.Current.Updater.Changed += OnUpdaterChanged;
+            Load();
+        };
+        Unloaded += (_, _) => App.Current.Updater.Changed -= OnUpdaterChanged;
+    }
+
+    private void OnUpdaterChanged() => Dispatcher.BeginInvoke(ShowUpdateState);
+
+    private void ShowUpdateState()
+    {
+        var u = App.Current.Updater;
+        UpdateTitle.Text = $"DualMix {Updater.Current}";
+        UpdateText.Text = u.State switch
+        {
+            UpdateState.Idle => _c.Settings.UpdateMode == UpdateMode.Off
+                ? "La ricerca automatica di nuove versioni è disattivata."
+                : "Le nuove versioni vengono cercate all'avvio e una volta al giorno.",
+            UpdateState.Downloading => $"{u.StatusText} {u.Progress:P0}",
+            UpdateState.Available when u.Available?.Notes is { } notes => $"{u.StatusText} {notes}",
+            _ => u.StatusText,
+        };
+        UpdateButton.IsEnabled = !u.Busy;
+        UpdateButton.Content = u.Available != null && u.State != UpdateState.UpToDate ? $"Installa {u.Available.Version}" : "Controlla ora";
+    }
+
+    private async void Update_Click(object sender, RoutedEventArgs e)
+    {
+        var u = App.Current.Updater;
+        if (u.Busy) return;
+        try
+        {
+            if (u.Available is { } info && u.State != UpdateState.UpToDate) await u.InstallAsync(info);
+            else await u.CheckAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Update from the settings page failed", ex);
+        }
+    }
+
+    private void UpdateMode_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_loading || sender is not RadioButton { Tag: string tag } || !Enum.TryParse<UpdateMode>(tag, out var mode)) return;
+        _c.Settings.UpdateMode = mode;
+        _c.ScheduleSave();
+        ShowUpdateState();
     }
 
     private void Load()
@@ -32,6 +79,10 @@ public partial class GeneralPage : Page
         ThSystem.IsChecked = s.Theme == ThemePreference.System;
         ThLight.IsChecked = s.Theme == ThemePreference.Light;
         ThDark.IsChecked = s.Theme == ThemePreference.Dark;
+        UpAuto.IsChecked = s.UpdateMode == UpdateMode.Auto;
+        UpNotify.IsChecked = s.UpdateMode == UpdateMode.Notify;
+        UpOff.IsChecked = s.UpdateMode == UpdateMode.Off;
+        ShowUpdateState();
         DataPath.Text = AppPaths.DataDir;
         VersionText.Text = $"DualMix {typeof(App).Assembly.GetName().Version?.ToString(3)}";
         _loading = false;

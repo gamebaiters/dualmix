@@ -14,21 +14,46 @@ namespace DualMix.UI;
 /// <summary>
 /// Glanceable click-through overlay shown when the knob or the shortcut changes something.
 /// It never takes focus (WS_EX_NOACTIVATE) and ignores the mouse (WS_EX_TRANSPARENT), so it is safe over games.
+///
+/// The window is really hidden (not just faded to transparent) when the indicator goes away. A transparent WPF
+/// window keeps on screen the last picture it managed to draw: if drawing stops for a moment (a game going full
+/// screen, a display-mode change, the lock screen, the graphics driver restarting) a window that is only "faded out"
+/// can be left showing its dark card for good. A hidden window shows nothing, whatever happened to its last frame;
+/// a second timer hides it even when the fade animation never reports its end.
 /// </summary>
 public partial class OsdWindow : Window
 {
+    private const int VisibleMs = 1300;
+    private const int FadeOutMs = 300;
+
     private readonly DispatcherTimer _hideTimer;
-    private bool _shown;
+    private readonly DispatcherTimer _forceHideTimer;
+    private int _fadeGeneration;
+    private bool? _themeDark;
     private OsdInfo? _last;
 
     public OsdWindow()
     {
         InitializeComponent();
-        _hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1300) };
+        _hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(VisibleMs) };
         _hideTimer.Tick += (_, _) =>
         {
             _hideTimer.Stop();
-            FadeTo(0, 300);
+            int generation = ++_fadeGeneration;
+            FadeTo(0, FadeOutMs, () =>
+            {
+                if (generation == _fadeGeneration) HideNow();
+            });
+        };
+        // Safety net: gone for certain shortly after the fade should have ended, animation or not.
+        _forceHideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(VisibleMs + FadeOutMs + 400) };
+        _forceHideTimer.Tick += (_, _) => HideNow();
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
+        Closed += (_, _) =>
+        {
+            Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
+            _hideTimer.Stop();
+            _forceHideTimer.Stop();
         };
         SourceInitialized += (_, _) =>
         {
@@ -45,22 +70,34 @@ public partial class OsdWindow : Window
         ApplyTheme();
         Render(info);
 
-        if (!_shown)
-        {
-            Show();
-            _shown = true;
-        }
+        _fadeGeneration++; // a fade-out still running must not hide what is shown now
+        double from = IsVisible ? Opacity : 0;
+        BeginAnimation(OpacityProperty, null);
+        Opacity = from;
+        if (!IsVisible) Show();
         PositionOnActiveScreen();
         UpdateLayout();
         Layout(info);
 
-        BeginAnimation(OpacityProperty, null);
-        if (Opacity < 1) FadeTo(1, 90);
-        Topmost = false;
-        Topmost = true;
+        if (from < 1) FadeTo(1, 90);
         _hideTimer.Stop();
         _hideTimer.Start();
+        _forceHideTimer.Stop();
+        _forceHideTimer.Start();
     }
+
+    /// <summary>Takes the window off the screen at once.</summary>
+    private void HideNow()
+    {
+        _hideTimer.Stop();
+        _forceHideTimer.Stop();
+        _fadeGeneration++;
+        BeginAnimation(OpacityProperty, null);
+        Opacity = 0;
+        if (IsVisible) Hide();
+    }
+
+    private void OnDisplayChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(HideNow);
 
     private void Render(OsdInfo info)
     {
@@ -118,6 +155,8 @@ public partial class OsdWindow : Window
     private void ApplyTheme()
     {
         bool dark = ThemeService.IsDark;
+        if (_themeDark == dark) return; // brushes are rebuilt only when the theme changes
+        _themeDark = dark;
         Card.Background = new SolidColorBrush(dark ? Color.FromArgb(0xF0, 0x2C, 0x2C, 0x2C) : Color.FromArgb(0xF5, 0xFA, 0xFA, 0xFA));
         Card.BorderBrush = new SolidColorBrush(dark ? Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x1A, 0, 0, 0));
         var primary = dark ? Colors.White : Color.FromRgb(0x1A, 0x1A, 0x1A);
@@ -145,13 +184,15 @@ public partial class OsdWindow : Window
         int wPx = (int)(Width * scale), hPx = (int)(Height * scale);
         int x = area.Left + (area.Right - area.Left - wPx) / 2;
         int y = area.Bottom - hPx - (int)(56 * scale);
+        // Also puts it back above other topmost windows (a borderless game, the taskbar).
         SetWindowPos(hwnd, HWND_TOPMOST, x, y, wPx, hPx, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
 
-    private void FadeTo(double to, int ms)
+    private void FadeTo(double to, int ms, Action? done = null)
     {
         var reduceMotion = !SystemParameters.ClientAreaAnimation;
         var anim = new DoubleAnimation(to, TimeSpan.FromMilliseconds(reduceMotion ? 1 : ms)) { FillBehavior = FillBehavior.HoldEnd };
+        if (done != null) anim.Completed += (_, _) => done();
         BeginAnimation(OpacityProperty, anim);
     }
 
