@@ -25,6 +25,8 @@
 param([switch]$Purge, [switch]$Silent, [switch]$Pause)
 
 $ErrorActionPreference = 'Continue'
+$isIt = [System.Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName -eq 'it'
+function T([string]$en, [string]$it) { if ($isIt) { $it } else { $en } }
 $dest = Join-Path $env:LOCALAPPDATA 'Programs\DualMix'
 Set-Location $env:TEMP   # never keep the folder being deleted as the current directory
 
@@ -38,7 +40,7 @@ function Get-DualMixProcesses {
 
 # 1. close DualMix cleanly (the same signal as "DualMix.dll --exit")
 if (Get-DualMixProcesses) {
-    Say 'Chiudo DualMix...'
+    Say (T 'Closing DualMix...' 'Chiudo DualMix...')
     try {
         $signal = [System.Threading.EventWaitHandle]::OpenExisting('Local\DualMix.Exit.7f3c2a')
         [void]$signal.Set()
@@ -73,10 +75,10 @@ if ($Purge) { Remove-Item (Join-Path $env:APPDATA 'DualMix') -Recurse -Force -Er
 
 $left = @()
 if (Test-Path $dest) { $left += $dest }
-if (Get-DualMixProcesses) { $left += 'un processo di DualMix ancora attivo' }
-if (Get-ScheduledTask -TaskName 'DualMix' -ErrorAction SilentlyContinue) { $left += 'attivita'' pianificata DualMix' }
-if ($left) { Write-Host ('Attenzione, non rimosso: ' + ($left -join ', ')) }
-else { Say 'Vecchio DualMix rimosso.' }
-if (-not $Purge) { Say "Impostazioni e log conservati in $(Join-Path $env:APPDATA 'DualMix'); i cavi virtuali restano installati." }
-if ($Pause) { Write-Host ''; Read-Host 'Premi Invio per chiudere' | Out-Null }
+if (Get-DualMixProcesses) { $left += (T 'a DualMix process is still running' 'un processo di DualMix ancora attivo') }
+if (Get-ScheduledTask -TaskName 'DualMix' -ErrorAction SilentlyContinue) { $left += (T 'DualMix scheduled task' 'attivita'' pianificata DualMix') }
+if ($left) { Write-Host ((T 'Warning, could not remove: ' 'Attenzione, non rimosso: ') + ($left -join ', ')) }
+else { Say (T 'Legacy DualMix removed.' 'Vecchio DualMix rimosso.') }
+if (-not $Purge) { Say (T "Settings and logs kept in $(Join-Path $env:APPDATA 'DualMix'); virtual cables remain installed." "Impostazioni e log conservati in $(Join-Path $env:APPDATA 'DualMix'); i cavi virtuali restano installati.") }
+if ($Pause) { Write-Host ''; Read-Host (T 'Press Enter to close' 'Premi Invio per chiudere') | Out-Null }
 if ($left) { exit 1 } else { exit 0 }

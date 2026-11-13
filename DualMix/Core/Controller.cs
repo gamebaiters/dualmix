@@ -87,7 +87,7 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
 
     // status
     private StatusSeverity _severity = StatusSeverity.Info;
-    private string _statusTitle = "Avvio…";
+    private string _statusTitle = Loc.Get("Status.Starting");
     private string _statusMessage = "";
     private bool _needsDriver;
     private bool _needsRepair;
@@ -142,7 +142,25 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
         _outputVolume.Changed += () => _ui.BeginInvoke(OnOutputVolumeChanged);
         _masterProxy.Changed += () => _ui.BeginInvoke(OnFrontVolumeChanged);
         _chatVolume.Changed += () => _ui.BeginInvoke(PullCableVolumes);
+        Loc.LanguageChanged += OnLanguageChanged;
     }
+
+    private void OnLanguageChanged()
+    {
+        _ui.BeginInvoke(() =>
+        {
+            if (_shutdown) return;
+            Evaluate();
+            AppsChanged?.Invoke();
+            OnPropertyChanged(nameof(MixText));
+            OnPropertyChanged(nameof(KnobTargetText));
+            OnPropertyChanged(nameof(KnobHotkeyText));
+            OnPropertyChanged(nameof(KeyboardStatus));
+            OnPropertyChanged(nameof(TechnicalDetails));
+        });
+    }
+
+    public void MarkAutoSetupHandled() => _autoSetupTried = true;
 
     // ===================================================================== lifecycle
 
@@ -188,6 +206,7 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
     {
         if (_shutdown) return;
         _shutdown = true;
+        Loc.LanguageChanged -= OnLanguageChanged;
         _tick.Stop();
         _hook.Dispose();
         try
@@ -301,8 +320,10 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
         get
         {
             var m = Settings.Mix;
-            if (Math.Abs(m) < 0.001) return "Bilanciato";
-            return m < 0 ? $"Più Game · Chat al {ChatLevelText}" : $"Più Chat · Game al {GameLevelText}";
+            if (Math.Abs(m) < 0.001) return Loc.Get("Common.Balanced");
+            return m < 0
+                ? Loc.Format("Mixer.MixText.GameBias", ChatLevelText)
+                : Loc.Format("Mixer.MixText.ChatBias", GameLevelText);
         }
     }
 
@@ -549,7 +570,7 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
     public bool NeedsDriver => _needsDriver;
     public bool NeedsRepair => _needsRepair;
     public bool SetupBusy => _setupBusy;
-    public string OutputName => _outputName ?? "Nessuna uscita";
+    public string OutputName => _outputName ?? Loc.Get("Common.NoOutput");
     public string GameDeviceName => _gameName ?? "—";
     public string ChatDeviceName => _chatName ?? "—";
     public bool DriverInstalled => !_needsDriver;
@@ -560,26 +581,33 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
     public string FormatText => _outputFormat?.Describe() ?? "—";
 
     public string LatencyText => RouterRunning
-        ? (GameViaBus ? $"≈ {_router.LatencyMs:0} ms" : $"Chat ≈ {_router.LatencyMs:0} ms · Game 0 ms")
+        ? (GameViaBus ? Loc.Format("Latency.Both", _router.LatencyMs) : Loc.Format("Latency.ChatOnly", _router.LatencyMs))
         : "—";
 
     public string EngineText => _virtualActive
-        ? (GameViaBus ? "Game e Chat virtuali" : "Chat virtuale · Game diretto")
-        : "Volume per applicazione";
+        ? (GameViaBus ? Loc.Get("Engine.BothVirtual") : Loc.Get("Engine.ChatVirtual"))
+        : Loc.Get("Engine.PerApp");
 
     public string TechnicalDetails
     {
         get
         {
-            if (!RouterRunning) return "Router non attivo.";
+            if (!RouterRunning) return Loc.Get("Status.Tech.NotRunning");
             var game = GameViaBus
-                ? $"Game    {_router.GameFormat?.Describe()} · correzione clock {_router.GameDriftPpm:+0.0;-0.0} ppm"
-                : "Game    diretto sulla scheda audio: nessuna elaborazione";
-            return $"Uscita  {_router.OutputFormat?.Describe()}\n{game}\n" +
-                   $"Chat    {_router.ChatFormat?.Describe()} · correzione clock {_router.ChatDriftPpm:+0.0;-0.0} ppm\n" +
-                   $"Interruzioni: {_router.Underruns}" + (_router.Underruns > 0 ? $" ({_router.DropoutDetail})" : "") +
-                   (_router.Suspended ? " · uscita in pausa (silenzio da oltre 10 minuti)" : "") +
-                   (_router.RealTimeScheduling ? "" : "\nAttenzione: Windows non ha concesso la priorità audio in tempo reale.");
+                ? Loc.Format("Status.Tech.GameBus", _router.GameFormat?.Describe(), _router.GameDriftPpm)
+                : Loc.Get("Status.Tech.GameDirect");
+            var dropoutsExtra = _router.Underruns > 0 ? $" ({_router.DropoutDetail})" : "";
+            var idle = _router.Suspended ? Loc.Get("Status.Tech.Idle") : "";
+            var rt = _router.RealTimeScheduling ? "" : Loc.Get("Status.Tech.NoRt");
+            return Loc.Format("Status.Tech.Summary",
+                _router.OutputFormat?.Describe(),
+                game,
+                _router.ChatFormat?.Describe(),
+                _router.ChatDriftPpm,
+                _router.Underruns,
+                dropoutsExtra,
+                idle,
+                rt);
         }
     }
 
@@ -672,10 +700,10 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
 
     public static string TargetName(KnobTarget t) => t switch
     {
-        KnobTarget.Mix => "Mix Game/Chat",
-        KnobTarget.Volume => "Volume generale",
-        KnobTarget.Game => "Volume Game",
-        KnobTarget.Chat => "Volume Chat",
+        KnobTarget.Mix => Loc.Get("Target.Mix"),
+        KnobTarget.Volume => Loc.Get("Target.Volume"),
+        KnobTarget.Game => Loc.Get("Target.Game"),
+        KnobTarget.Chat => Loc.Get("Target.Chat"),
         _ => t.ToString(),
     };
 
@@ -715,12 +743,11 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
     {
         get
         {
-            if (!Settings.KnobEnabled) return "La rotella è lasciata a Windows.";
+            if (!Settings.KnobEnabled) return Loc.Get("Knob.Status.Disabled");
             int total = Knob.Bindings.Count;
             var failed = _hook.FailedHotkeys;
-            if (failed.Count == 0) return $"{_hook.ActiveHotkeys} combinazioni di tasti registrate in Windows: funzionano con qualsiasi finestra in primo piano.";
-            return $"{_hook.ActiveHotkeys} di {total} combinazioni registrate in Windows. Già usate da un altro programma (DualMix le intercetta comunque, " +
-                   $"tranne sopra le finestre avviate come amministratore): {string.Join(", ", failed)}.";
+            if (failed.Count == 0) return Loc.Format("Knob.Status.AllActive", _hook.ActiveHotkeys);
+            return Loc.Format("Knob.Status.SomeFailed", _hook.ActiveHotkeys, total, string.Join(", ", failed));
         }
     }
 
@@ -834,7 +861,7 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(KnobTarget));
         ScheduleSave();
         Log.Info("Knob function: " + target);
-        if (showOsd) OsdRequested?.Invoke(new OsdInfo(OsdKind.Function, "Rotella", TargetName(target), 0));
+        if (showOsd) OsdRequested?.Invoke(new OsdInfo(OsdKind.Function, Loc.Get("Common.Wheel"), TargetName(target), 0));
     }
 
     /// <summary>Master volume from DualMix itself (the function "Volume" normally leaves the keys to Windows).</summary>
@@ -854,15 +881,15 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
     private void ShowMixOsd()
     {
         var text = Math.Abs(Settings.Mix) < 0.001
-            ? "Bilanciato"
+            ? Loc.Get("Common.Balanced")
             : $"Game {GameLevelText} · Chat {ChatLevelText}";
-        OsdRequested?.Invoke(new OsdInfo(OsdKind.Mix, "Mix", text, Settings.Mix));
+        OsdRequested?.Invoke(new OsdInfo(OsdKind.Mix, Loc.Get("Common.Mix"), text, Settings.Mix));
     }
 
     private void ShowVolumeOsd()
     {
         var muted = _outputVolume.Muted;
-        OsdRequested?.Invoke(new OsdInfo(OsdKind.Volume, "Volume", muted ? "Muto" : MixMath.Percent(_outputVolume.Level), _outputVolume.Level, muted));
+        OsdRequested?.Invoke(new OsdInfo(OsdKind.Volume, Loc.Get("Common.Volume"), muted ? Loc.Get("Common.Muted") : MixMath.Percent(_outputVolume.Level), _outputVolume.Level, muted));
     }
 
     private void ShowChannelOsd(Channel ch)
@@ -870,8 +897,8 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
         bool game = ch == Channel.Game;
         var vol = game ? Settings.GameVolume : Settings.ChatVolume;
         var muted = game ? Settings.GameMuted : Settings.ChatMuted;
-        OsdRequested?.Invoke(new OsdInfo(game ? OsdKind.Game : OsdKind.Chat, game ? "Game" : "Chat",
-            muted ? "Muto" : MixMath.Percent(vol), vol, muted));
+        OsdRequested?.Invoke(new OsdInfo(game ? OsdKind.Game : OsdKind.Chat, game ? Loc.Get("Common.Game") : Loc.Get("Common.Chat"),
+            muted ? Loc.Get("Common.Muted") : MixMath.Percent(vol), vol, muted));
     }
 
     /// <summary>React to keys sent by other programs as well (see <see cref="Settings.AcceptInjectedKeys"/>).</summary>
@@ -951,12 +978,12 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
         var s = Settings;
         var render = Devices.List(DataFlow.Render);
 
-        // Real output: the AE-5 unless the user picked something else.
+        // Real output: user choice, or Windows active playback / best analog device on any PC.
         DeviceInfo? output = null;
         if (s.OutputChosenByUser) output = render.FirstOrDefault(d => d.Id == s.OutputDeviceId && !d.IsVbCable);
-        output ??= Devices.FindPreferredOutput(render);
+        var defaultMultimedia = s.DefaultsBackup?.Multimedia ?? Devices.GetDefaultId(Role.Multimedia);
+        output ??= Devices.FindPreferredOutput(render, defaultMultimedia);
         output ??= render.FirstOrDefault(d => d.Id == s.OutputDeviceId && !d.IsVbCable);
-        output ??= render.FirstOrDefault(d => d.Id == (s.DefaultsBackup?.Multimedia ?? Devices.GetDefaultId(Role.Multimedia)) && !d.IsVbCable);
         if (output != null && output.Id != s.OutputDeviceId && !s.OutputChosenByUser)
         {
             s.OutputDeviceId = output.Id;
@@ -1025,15 +1052,13 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
 
         if (_router.Blocked)
         {
-            SetStatus(StatusSeverity.Error, "Il motore audio è bloccato",
-                "Windows (o l'antivirus) sta trattenendo l'accesso audio di DualMix: tutto suona direttamente sull'uscita. " +
-                "Riavvia DualMix; se si ripete, aggiungilo alle applicazioni attendibili dell'antivirus.");
+            SetStatus(StatusSeverity.Error, Loc.Get("Status.Blocked.Title"), Loc.Get("Status.Blocked.Body"));
             _nextEvaluate = Environment.TickCount64 + 60000;
         }
         if (_dryRun) return;
 
         // A second cable was installed before from a purchased pack and is gone: put it back automatically.
-        if (wantVirtual && chatOk && game == null && !s.GameDirect && !_packTried && !_setupBusy && probe == null)
+        if (s.FirstRunDone && wantVirtual && chatOk && game == null && !s.GameDirect && !_packTried && !_setupBusy && probe == null)
         {
             _packTried = true;
             var cached = DriverSetup.CachedPack();
@@ -1042,8 +1067,8 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
                 _ = _ui.BeginInvoke(async () => await RunSetupAsync(install: false, repair: false, packPath: cached));
         }
 
-        // Install the driver / repair the audio service automatically, once per start.
-        if (!_autoSetupTried && !_setupBusy && ((wantVirtual && !chatOk) || _needsRepair))
+        // Install the driver / repair the audio service automatically, once per start (only after initial setup wizard finishes).
+        if (s.FirstRunDone && !_autoSetupTried && !_setupBusy && ((wantVirtual && !chatOk) || _needsRepair))
         {
             _autoSetupTried = true;
             var declined = s.DriverSetupDeclinedAt;
@@ -1124,40 +1149,35 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
     {
         if (_setupBusy)
         {
-            SetStatus(StatusSeverity.Info, "Configurazione in corso…", "Conferma la richiesta di Windows (Controllo account utente) per continuare.");
+            SetStatus(StatusSeverity.Info, Loc.Get("Status.SetupBusy.Title"), Loc.Get("Status.SetupBusy.Body"));
         }
         else if (output == null)
         {
-            SetStatus(StatusSeverity.Error, "Uscita audio non trovata",
-                "La Sound Blaster AE-5 non è collegata o è disattivata. DualMix riprende da solo appena torna disponibile.");
+            SetStatus(StatusSeverity.Error, Loc.Get("Status.NoOutput.Title"), Loc.Get("Status.NoOutput.Body"));
         }
         else if (probe == ClassNotRegistered)
         {
-            SetStatus(StatusSeverity.Error, "Il servizio audio di Windows ha perso la scheda audio",
-                "Nessuna app può suonare sulla scheda finché il servizio audio non viene riavviato. Premi «Ripara audio».");
+            SetStatus(StatusSeverity.Error, Loc.Get("Status.AudioLost.Title"), Loc.Get("Status.CardNoPlay.Body"));
         }
         else if (probe != null)
         {
-            SetStatus(StatusSeverity.Error, "Uscita audio non utilizzabile", $"{output.Name}: errore 0x{probe.Value:X8}.");
+            SetStatus(StatusSeverity.Error, Loc.Get("Status.OutputUnusable.Title"), Loc.Format("Status.OutputUnusable.Body", output.Name, probe.Value));
         }
         else if (wantVirtual && !chatOk)
         {
-            SetStatus(StatusSeverity.Warning, "Driver del dispositivo virtuale non installato",
-                "DualMix sta usando il volume per applicazione. Installa il driver per avere l'uscita «DualMix Chat».");
+            SetStatus(StatusSeverity.Warning, Loc.Get("Status.NoDriver.Title"), Loc.Get("Status.NoDriver.Body"));
         }
         else if (!wantVirtual)
         {
-            SetStatus(StatusSeverity.Info, "Modalità volume per applicazione", "Il mix regola il volume di ogni app nel mixer di Windows.");
+            SetStatus(StatusSeverity.Info, Loc.Get("Status.PerAppMode.Title"), Loc.Format("Status.PerAppMode.Body", output.Name));
         }
         else if (GameViaBus)
         {
-            SetStatus(StatusSeverity.Success, "Tutto pronto",
-                $"«DualMix Game» e «DualMix Chat» vengono mixati in alta fedeltà su {output.Name}.");
+            SetStatus(StatusSeverity.Success, Loc.Get("Status.ReadyDual.Title"), Loc.Format("Status.ReadyDual.Body", output.Name));
         }
         else
         {
-            SetStatus(StatusSeverity.Success, "Tutto pronto",
-                $"Game suona direttamente su {output.Name} (segnale inalterato, nessuna latenza). Chat passa da «DualMix Chat».");
+            SetStatus(StatusSeverity.Success, Loc.Get("Status.ReadySingle.Title"), Loc.Format("Status.ReadySingle.Body", output.Name));
         }
     }
 
@@ -1199,7 +1219,7 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
     /// <param name="packPath">Optional VB-CABLE A+B pack (zip) to install as the second cable.</param>
     public async Task<SetupResult> RunSetupAsync(bool install, bool repair, string? packPath = null)
     {
-        if (_setupBusy) return new SetupResult { Message = "Già in corso." };
+        if (_setupBusy) return new SetupResult { Message = Loc.Get("Status.AlreadyRunning") };
         _setupBusy = true;
         UpdateStatus(true, true, null, null);
         RaiseEngineProperties();
@@ -1400,7 +1420,7 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
             if (_router.State == RouterState.Error || hung || (!_router.IsRunning && _router.State != RouterState.Starting))
             {
                 _routerFailures++;
-                var reason = hung ? "il servizio audio non risponde" : _router.LastError ?? "fermo";
+                var reason = hung ? Loc.Get("Status.RouterHungReason") : _router.LastError ?? Loc.Get("Status.RouterStoppedReason");
                 Log.Warn($"Router failure #{_routerFailures}: {reason}");
                 if (hung || _router.LastErrorCode == ClassNotRegistered || _routerFailures >= 3)
                 {
@@ -1413,8 +1433,8 @@ public sealed class Controller : INotifyPropertyChanged, IDisposable
                     }
                     else
                     {
-                        SetStatus(StatusSeverity.Warning, "Dispositivo virtuale in pausa",
-                            $"Problema con l'audio ({reason}). Tutto suona direttamente sull'uscita; nuovo tentativo a breve.");
+                        SetStatus(StatusSeverity.Warning, Loc.Get("Status.VirtualPaused.Title"),
+                            Loc.Format("Status.VirtualPaused.Problem", reason));
                         _nextEvaluate = now + Math.Min(60000, 5000L << Math.Min(4, _routerFailures - 1));
                         RaiseEngineProperties();
                         EngineChanged?.Invoke();

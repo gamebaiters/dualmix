@@ -6,9 +6,9 @@
 # Runs on Linux (and in GitHub Actions): needs the .NET 10 SDK, zip, and NSIS (makensis) for the installer.
 # The version is the <Version> of DualMix/DualMix.csproj. Output in out/release/:
 #
-#   DualMix-<v>-win-x64.zip     the package: "Installa DualMix.cmd", setup\, app\   (what the automatic update downloads)
+#   DualMix-<v>-win-x64.zip     the package: "Install DualMix.cmd", setup\, app\   (what the automatic update downloads)
 #   DualMix-Setup-<v>.exe       the same package as a double-click installer
-#   Rimuovi-vecchio-DualMix.zip the script that removes a DualMix installed the old way, on its own
+#   Remove-old-DualMix.zip      the script that removes a DualMix installed the old way, on its own
 #   version.json                what a running DualMix reads to know there is a new version
 #   SHA256SUMS.txt
 #
@@ -55,8 +55,8 @@ echo "== package"
 old="$root/out/rimuovi-vecchio"
 rm -rf "$old"; mkdir -p "$old/setup"
 cp "$stage/setup/rimuovi-vecchio.ps1" "$old/setup/"
-cp "$stage/Rimuovi vecchio DualMix.cmd" "$old/"
-(cd "$old" && zip -q -r -X "$out/Rimuovi-vecchio-DualMix.zip" .)
+cp "$stage/Remove old DualMix.cmd" "$old/"
+(cd "$old" && zip -q -r -X "$out/Remove-old-DualMix.zip" .)
 
 if command -v makensis >/dev/null; then
   echo "== installer"

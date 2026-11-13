@@ -2,21 +2,22 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-      Title="Generale"
+      xmlns:core="clr-namespace:DualMix.Core"
+      Title="{Binding [General.Title], Source={x:Static core:Loc.Instance}}"
       Foreground="{DynamicResource TextFillColorPrimaryBrush}">
     <!-- Scrolling is provided by the navigation frame (WPF-UI DynamicScrollViewer). -->
         <StackPanel Margin="{StaticResource PagePadding}" MaxWidth="1000">
-            <ui:TextBlock Text="Generale" FontTypography="Title" Margin="0,0,0,20" />
+            <ui:TextBlock Text="{Binding [General.Title], Source={x:Static core:Loc.Instance}}" FontTypography="Title" Margin="0,0,0,20" />
 
-            <TextBlock Text="Avvio" Style="{StaticResource SectionHeader}" Margin="0,0,0,8" />
+            <TextBlock Text="{Binding [General.StartupSection], Source={x:Static core:Loc.Instance}}" Style="{StaticResource SectionHeader}" Margin="0,0,0,8" />
             <ui:CardControl Margin="0,0,0,4">
                 <ui:CardControl.Icon>
                     <ui:SymbolIcon Symbol="Rocket24" />
                 </ui:CardControl.Icon>
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="Avvia con Windows" Style="{StaticResource BodyText}" />
-                        <TextBlock Text="DualMix parte all'accesso (attività «DualMix» di Windows), senza finestre, e viene riavviato da solo se si blocca." Style="{StaticResource CaptionText}" />
+                        <TextBlock Text="{Binding [General.Autostart], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.AutostartDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch x:Name="Autostart" Checked="Option_Changed" Unchecked="Option_Changed" />
@@ -27,26 +28,26 @@
                 </ui:CardControl.Icon>
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="All'avvio con Windows resta nascosto" Style="{StaticResource BodyText}" />
-                        <TextBlock Text="La finestra si apre solo cliccando l'icona nell'area di notifica." Style="{StaticResource CaptionText}" />
+                        <TextBlock Text="{Binding [General.StartHidden], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.StartHiddenDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch x:Name="StartHidden" Checked="Option_Changed" Unchecked="Option_Changed" />
             </ui:CardControl>
 
-            <TextBlock Text="Comportamento" Style="{StaticResource SectionHeader}" />
+            <TextBlock Text="{Binding [General.BehaviorSection], Source={x:Static core:Loc.Instance}}" Style="{StaticResource SectionHeader}" />
             <ui:CardControl Margin="0,0,0,4">
                 <ui:CardControl.Icon>
                     <ui:SymbolIcon Symbol="SlideText24" />
                 </ui:CardControl.Icon>
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="Indicatore a schermo" Style="{StaticResource BodyText}" />
-                        <TextBlock Text="Mostra mix e volume quando usi la rotella. Non ruba il focus e non intercetta i clic." Style="{StaticResource CaptionText}" />
+                        <TextBlock Text="{Binding [General.Osd], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.OsdDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <StackPanel Orientation="Horizontal">
-                    <ui:Button Content="Prova" Appearance="Transparent" Click="TestOsd_Click" Margin="0,0,8,0" />
+                    <ui:Button Content="{Binding [General.OsdTest], Source={x:Static core:Loc.Instance}}" Appearance="Transparent" Click="TestOsd_Click" Margin="0,0,8,0" />
                     <ui:ToggleSwitch x:Name="Osd" Checked="Option_Changed" Unchecked="Option_Changed" />
                 </StackPanel>
             </ui:CardControl>
@@ -56,34 +57,52 @@
                 </ui:CardControl.Icon>
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="Ripristina i volumi delle app all'uscita" Style="{StaticResource BodyText}" />
-                        <TextBlock Text="Chiudendo DualMix ogni app torna al volume che aveva, senza il mix applicato." Style="{StaticResource CaptionText}" />
+                        <TextBlock Text="{Binding [General.RestoreVol], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.RestoreVolDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <ui:ToggleSwitch x:Name="RestoreVolumes" Checked="Option_Changed" Unchecked="Option_Changed" />
             </ui:CardControl>
 
-            <TextBlock Text="Aspetto" Style="{StaticResource SectionHeader}" />
+            <TextBlock Text="{Binding [General.AppearanceSection], Source={x:Static core:Loc.Instance}}" Style="{StaticResource SectionHeader}" />
             <ui:CardControl Margin="0,0,0,4">
                 <ui:CardControl.Icon>
                     <ui:SymbolIcon Symbol="DarkTheme24" />
                 </ui:CardControl.Icon>
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="Tema" Style="{StaticResource BodyText}" />
-                        <TextBlock Text="Segue Windows oppure resta chiaro o scuro." Style="{StaticResource CaptionText}" />
+                        <TextBlock Text="{Binding [General.Theme], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.ThemeDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <Border Style="{StaticResource SegmentHost}">
                     <StackPanel Orientation="Horizontal">
-                        <RadioButton x:Name="ThSystem" Style="{StaticResource SegmentItem}" Content="Sistema" Tag="System" Checked="Theme_Checked" />
-                        <RadioButton x:Name="ThLight" Style="{StaticResource SegmentItem}" Content="Chiaro" Tag="Light" Checked="Theme_Checked" />
-                        <RadioButton x:Name="ThDark" Style="{StaticResource SegmentItem}" Content="Scuro" Tag="Dark" Checked="Theme_Checked" />
+                        <RadioButton x:Name="ThSystem" Style="{StaticResource SegmentItem}" Content="{Binding [General.Theme.System], Source={x:Static core:Loc.Instance}}" Tag="System" Checked="Theme_Checked" />
+                        <RadioButton x:Name="ThLight" Style="{StaticResource SegmentItem}" Content="{Binding [General.Theme.Light], Source={x:Static core:Loc.Instance}}" Tag="Light" Checked="Theme_Checked" />
+                        <RadioButton x:Name="ThDark" Style="{StaticResource SegmentItem}" Content="{Binding [General.Theme.Dark], Source={x:Static core:Loc.Instance}}" Tag="Dark" Checked="Theme_Checked" />
+                    </StackPanel>
+                </Border>
+            </ui:CardControl>
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="LocalLanguage24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="{Binding [General.Language], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.LanguageDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <Border Style="{StaticResource SegmentHost}">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="LangAuto" Style="{StaticResource SegmentItem}" Content="{Binding [General.Language.Auto], Source={x:Static core:Loc.Instance}}" Tag="Auto" Checked="Language_Checked" />
+                        <RadioButton x:Name="LangEn" Style="{StaticResource SegmentItem}" Content="{Binding [General.Language.En], Source={x:Static core:Loc.Instance}}" Tag="English" Checked="Language_Checked" />
+                        <RadioButton x:Name="LangIt" Style="{StaticResource SegmentItem}" Content="{Binding [General.Language.It], Source={x:Static core:Loc.Instance}}" Tag="Italian" Checked="Language_Checked" />
                     </StackPanel>
                 </Border>
             </ui:CardControl>
 
-            <TextBlock Text="Aggiornamenti" Style="{StaticResource SectionHeader}" />
+            <TextBlock Text="{Binding [General.UpdatesSection], Source={x:Static core:Loc.Instance}}" Style="{StaticResource SectionHeader}" />
             <ui:CardControl Margin="0,0,0,4">
                 <ui:CardControl.Icon>
                     <ui:SymbolIcon Symbol="ArrowDownload24" />
@@ -94,7 +113,7 @@
                         <TextBlock x:Name="UpdateText" Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
                     </StackPanel>
                 </ui:CardControl.Header>
-                <ui:Button x:Name="UpdateButton" Content="Controlla ora" Click="Update_Click" MinWidth="120" />
+                <ui:Button x:Name="UpdateButton" Content="{Binding [General.UpdateCheck], Source={x:Static core:Loc.Instance}}" Click="Update_Click" MinWidth="120" />
             </ui:CardControl>
             <ui:CardControl Margin="0,0,0,4">
                 <ui:CardControl.Icon>
@@ -102,31 +121,43 @@
                 </ui:CardControl.Icon>
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="Nuove versioni" Style="{StaticResource BodyText}" />
-                        <TextBlock Text="Automatici: una nuova versione trovata all'avvio si installa da sola, e DualMix riparte. Avvisa: te lo dice e aspetta te." Style="{StaticResource CaptionText}" />
+                        <TextBlock Text="{Binding [General.UpdateModes], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.UpdateModesDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
                     </StackPanel>
                 </ui:CardControl.Header>
                 <Border Style="{StaticResource SegmentHost}">
                     <StackPanel Orientation="Horizontal">
-                        <RadioButton x:Name="UpAuto" Style="{StaticResource SegmentItem}" Content="Automatici" Tag="Auto" Checked="UpdateMode_Checked" />
-                        <RadioButton x:Name="UpNotify" Style="{StaticResource SegmentItem}" Content="Avvisa" Tag="Notify" Checked="UpdateMode_Checked" />
-                        <RadioButton x:Name="UpOff" Style="{StaticResource SegmentItem}" Content="Mai" Tag="Off" Checked="UpdateMode_Checked" />
+                        <RadioButton x:Name="UpAuto" Style="{StaticResource SegmentItem}" Content="{Binding [General.UpdateMode.Auto], Source={x:Static core:Loc.Instance}}" Tag="Auto" Checked="UpdateMode_Checked" />
+                        <RadioButton x:Name="UpNotify" Style="{StaticResource SegmentItem}" Content="{Binding [General.UpdateMode.Notify], Source={x:Static core:Loc.Instance}}" Tag="Notify" Checked="UpdateMode_Checked" />
+                        <RadioButton x:Name="UpOff" Style="{StaticResource SegmentItem}" Content="{Binding [General.UpdateMode.Off], Source={x:Static core:Loc.Instance}}" Tag="Off" Checked="UpdateMode_Checked" />
                     </StackPanel>
                 </Border>
             </ui:CardControl>
 
-            <TextBlock Text="Assistenza" Style="{StaticResource SectionHeader}" />
+            <TextBlock Text="{Binding [General.SupportSection], Source={x:Static core:Loc.Instance}}" Style="{StaticResource SectionHeader}" />
+            <ui:CardControl Margin="0,0,0,4">
+                <ui:CardControl.Icon>
+                    <ui:SymbolIcon Symbol="Wand24" />
+                </ui:CardControl.Icon>
+                <ui:CardControl.Header>
+                    <StackPanel>
+                        <TextBlock Text="{Binding [General.Wizard], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.WizardDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
+                    </StackPanel>
+                </ui:CardControl.Header>
+                <ui:Button Content="{Binding [General.WizardOpen], Source={x:Static core:Loc.Instance}}" Click="Wizard_Click" />
+            </ui:CardControl>
             <ui:CardControl Margin="0,0,0,4">
                 <ui:CardControl.Icon>
                     <ui:SymbolIcon Symbol="Stethoscope24" />
                 </ui:CardControl.Icon>
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="Diagnostica" Style="{StaticResource BodyText}" />
-                        <TextBlock x:Name="DiagText" Text="Controlla dispositivi, driver e rotella, poi misura il percorso audio con toni di prova quasi inudibili (circa un minuto)." Style="{StaticResource CaptionText}" />
+                        <TextBlock Text="{Binding [General.Diag], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
+                        <TextBlock x:Name="DiagText" Text="{Binding [General.DiagDesc], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
                     </StackPanel>
                 </ui:CardControl.Header>
-                <ui:Button x:Name="DiagButton" Content="Esegui" Click="Diag_Click" />
+                <ui:Button x:Name="DiagButton" Content="{Binding [General.DiagRun], Source={x:Static core:Loc.Instance}}" Click="Diag_Click" />
             </ui:CardControl>
             <ui:CardControl Margin="0,0,0,4">
                 <ui:CardControl.Icon>
@@ -134,25 +165,25 @@
                 </ui:CardControl.Icon>
                 <ui:CardControl.Header>
                     <StackPanel>
-                        <TextBlock Text="Impostazioni e log" Style="{StaticResource BodyText}" />
+                        <TextBlock Text="{Binding [General.Logs], Source={x:Static core:Loc.Instance}}" Style="{StaticResource BodyText}" />
                         <TextBlock x:Name="DataPath" Style="{StaticResource CaptionText}" />
                     </StackPanel>
                 </ui:CardControl.Header>
-                <ui:Button Content="Apri cartella" Click="OpenFolder_Click" />
+                <ui:Button Content="{Binding [General.OpenFolder], Source={x:Static core:Loc.Instance}}" Click="OpenFolder_Click" />
             </ui:CardControl>
 
-            <TextBlock Text="Informazioni" Style="{StaticResource SectionHeader}" />
+            <TextBlock Text="{Binding [General.AboutSection], Source={x:Static core:Loc.Instance}}" Style="{StaticResource SectionHeader}" />
             <Border Style="{StaticResource Surface}">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Image Source="pack://application:,,,/Assets/dualmix.ico" Width="32" Height="32" />
                         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
                             <TextBlock x:Name="VersionText" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                            <TextBlock Text="Mixer Game/Chat per Windows, ispirato al ChatMix di SteelSeries." Style="{StaticResource CaptionText}" />
+                            <TextBlock Text="{Binding [General.AboutTagline], Source={x:Static core:Loc.Instance}}" Style="{StaticResource CaptionText}" />
                         </StackPanel>
                     </StackPanel>
                     <TextBlock Style="{StaticResource CaptionText}" Margin="0,12,0,0">
-                        Le uscite virtuali usano VB-CABLE di VB-Audio Software (donationware): se ti è utile, puoi sostenere l'autore su
+                        <Run Text="{Binding [General.VbCreditPrefix], Source={x:Static core:Loc.Instance}, Mode=OneWay}" />
                         <Hyperlink NavigateUri="https://vb-audio.com/Cable/" RequestNavigate="Link_Navigate">vb-audio.com</Hyperlink>.
                     </TextBlock>
                 </StackPanel>

@@ -87,6 +87,14 @@ public enum ThemePreference
     Dark,
 }
 
+public enum LanguagePreference
+{
+    /// <summary>Italian when Windows display language is Italian, English everywhere else.</summary>
+    Auto,
+    English,
+    Italian,
+}
+
 public sealed class AppRule
 {
     /// <summary>Explicit channel, or null for automatic classification.</summary>
@@ -149,7 +157,7 @@ public sealed class Settings
     public string? GameDeviceId { get; set; }
     public string? ChatDeviceId { get; set; }
 
-    /// <summary>Real output. When <see cref="OutputChosenByUser"/> is false DualMix always picks the Sound Blaster AE-5.</summary>
+    /// <summary>Real output. When <see cref="OutputChosenByUser"/> is false DualMix picks the active Windows default or best analog output.</summary>
     public string? OutputDeviceId { get; set; }
     public bool OutputChosenByUser { get; set; }
 
@@ -233,6 +241,7 @@ public sealed class Settings
     public bool ShowOsd { get; set; } = true;
     public bool RestoreVolumesOnExit { get; set; } = true;
     public ThemePreference Theme { get; set; } = ThemePreference.System;
+    public LanguagePreference Language { get; set; } = LanguagePreference.Auto;
     public bool FirstRunDone { get; set; }
     public bool TrayHintShown { get; set; }
 

@@ -121,6 +121,9 @@ public partial class App : Application
 
         if (snapshot) SettingsStore.ReadOnly = true; // screenshots leave no trace
         var settings = SettingsStore.Load();
+        var langIdx = Array.FindIndex(e.Args, a => a.Equals("--lang", StringComparison.OrdinalIgnoreCase));
+        var langOverride = langIdx >= 0 && langIdx + 1 < e.Args.Length ? e.Args[langIdx + 1] : null;
+        Loc.Initialize(settings.Language, langOverride);
         ThemeService.Apply(settings.Theme);
 
         if (!snapshot)
@@ -128,15 +131,6 @@ public partial class App : Application
             // Keep the autostart task pointing at the current installation (e.g. after an update/move).
             if (settings.StartWithWindows && !AutoStart.IsCurrent) AutoStart.Set(true);
             else if (!settings.StartWithWindows && AutoStart.IsEnabled) AutoStart.Set(false);
-        }
-
-        if (!settings.FirstRunDone && !snapshot)
-        {
-            settings.FirstRunDone = true;
-            // Windows lowers every other sound by 80% when it detects a call: that defeats the whole point
-            // of a Game/Chat mix, so switch it off once (it can be turned back on in "Audio e dispositivi").
-            if (!WindowsDucking.IsDisabled) WindowsDucking.SetDisabled(true);
-            SettingsStore.Save(settings);
         }
 
         _controller = new Controller(settings, Dispatcher, dryRun: snapshot);
@@ -158,7 +152,14 @@ public partial class App : Application
         _exitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEventName);
         _exitWait = ThreadPool.RegisterWaitForSingleObject(_exitEvent, (_, _) => Dispatcher.BeginInvoke(() => _ = ExitAsync()), null, -1, true);
 
-        if (!tray || !settings.StartMinimized) ShowMainWindow();
+        if (!settings.FirstRunDone || Has("--wizard"))
+        {
+            ShowSetupWizard(openMainAfter: true);
+        }
+        else if (!tray || !settings.StartMinimized)
+        {
+            ShowMainWindow();
+        }
 
         // Updates: once a minute after the start (the network is up by then), then whenever a check is due.
         _updateTimer = new DispatcherTimer(TimeSpan.FromMinutes(1), DispatcherPriority.Background, (_, _) =>
@@ -193,16 +194,16 @@ public partial class App : Application
             if (info == null || _exiting) return;
             if (startup && s.UpdateMode == UpdateMode.Auto)
             {
-                _tray?.ShowBalloon("Aggiornamento di DualMix", $"Installo la versione {info.Version}: DualMix si riavvia da solo tra un momento.");
+                _tray?.ShowBalloon(Loc.Get("Updater.BalloonTitle"), Loc.Format("Updater.BalloonInstalling", info.Version));
                 await _updater.InstallAsync(info);
             }
             else if (_announcedUpdate != info.Version)
             {
                 _announcedUpdate = info.Version;
-                _tray?.ShowBalloon($"È disponibile DualMix {info.Version}",
+                _tray?.ShowBalloon(Loc.Format("Updater.BalloonAvailableTitle", info.Version),
                     s.UpdateMode == UpdateMode.Auto
-                        ? "Verrà installato al prossimo avvio. Per farlo subito: Generale → Aggiornamenti."
-                        : "Per installarlo: Generale → Aggiornamenti.");
+                        ? Loc.Get("Updater.BalloonAutoNext")
+                        : Loc.Get("Updater.BalloonManual"));
             }
         }
         catch (Exception ex)
@@ -232,27 +233,45 @@ public partial class App : Application
         }
     }
 
-    /// <summary>Developer aid: renders every page to PNG files (off-screen) and exits.</summary>
+    /// <summary>Developer aid: renders every page (and setup wizard steps) to PNG files (off-screen) and exits.</summary>
     private async Task SnapshotAsync(string dir)
     {
-        _window = new MainWindow(_controller!) { WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = 0, ShowActivated = false };
-        _window.Show();
-        await Task.Delay(3000);
-        // Once at the normal size, once tall enough to see every page down to its last card.
-        foreach (var (height, suffix) in new[] { (740.0, ""), (2100.0, "_full") })
+        try
         {
-            _window.Height = height;
-            for (int i = 0; i < 5; i++)
+            var wiz = new SetupWindow(_controller!, snapshotMode: true) { WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = 0, ShowActivated = false };
+            wiz.Show();
+            await Task.Delay(1200);
+            for (int s = 1; s <= 3; s++)
             {
-                _window.Navigate(i);
-                await Task.Delay(900);
-                await _window.SaveSnapshotAsync(System.IO.Path.Combine(dir, $"page{i}{suffix}.png"));
-                if (suffix.Length > 0 && _window.ScrollPageToEnd())
+                wiz.ShowStep(s);
+                await Task.Delay(350);
+                await wiz.SaveSnapshotAsync(System.IO.Path.Combine(dir, $"wizard_step{s}.png"));
+            }
+            wiz.Close();
+
+            _window = new MainWindow(_controller!) { WindowStartupLocation = WindowStartupLocation.Manual, Left = -20000, Top = 0, ShowActivated = false };
+            _window.Show();
+            await Task.Delay(3000);
+            // Once at the normal size, once tall enough to see every page down to its last card.
+            foreach (var (height, suffix) in new[] { (740.0, ""), (2100.0, "_full") })
+            {
+                _window.Height = height;
+                for (int i = 0; i < 5; i++)
                 {
-                    await Task.Delay(500);
-                    await _window.SaveSnapshotAsync(System.IO.Path.Combine(dir, $"page{i}_end.png"));
+                    _window.Navigate(i);
+                    await Task.Delay(1100);
+                    await _window.SaveSnapshotAsync(System.IO.Path.Combine(dir, $"page{i}{suffix}.png"));
+                    if (suffix.Length > 0 && _window.ScrollPageToEnd())
+                    {
+                        await Task.Delay(500);
+                        await _window.SaveSnapshotAsync(System.IO.Path.Combine(dir, $"page{i}_end.png"));
+                    }
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SnapshotAsync failed", ex);
         }
         await ExitAsync();
     }
@@ -299,6 +318,23 @@ public partial class App : Application
         _window.Focus();
     }
 
+    public void ShowSetupWizard(bool openMainAfter = false)
+    {
+        if (_exiting || _controller == null) return;
+        var wiz = new SetupWindow(_controller);
+        wiz.Closed += async (_, _) =>
+        {
+            if (openMainAfter && !_exiting) ShowMainWindow();
+            if (wiz.InstallVirtualDriverRequested && !_exiting)
+            {
+                _controller.MarkAutoSetupHandled();
+                await _controller.RunSetupAsync(install: true, repair: _controller.NeedsRepair);
+            }
+        };
+        wiz.Show();
+        wiz.Activate();
+    }
+
     public void OnMainWindowHidden()
     {
         var s = _controller!.Settings;
@@ -306,7 +342,7 @@ public partial class App : Application
         {
             s.TrayHintShown = true;
             _controller.ScheduleSave();
-            _tray?.ShowBalloon("DualMix è ancora attivo", "Continua a gestire l'audio dall'area di notifica. Clic sull'icona per riaprirlo, tasto destro per uscire.");
+            _tray?.ShowBalloon(Loc.Get("Tray.StillRunning.Title"), Loc.Get("Tray.StillRunning.Body"));
         }
     }
 

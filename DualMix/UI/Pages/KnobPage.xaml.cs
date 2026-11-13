@@ -23,15 +23,19 @@ public partial class KnobPage : Page
         {
             _c.PropertyChanged += OnChanged;
             _c.Knob.KeySeen += OnKeySeen;
+            Loc.LanguageChanged += OnLanguageChanged;
             Load();
         };
         Unloaded += (_, _) =>
         {
             _c.PropertyChanged -= OnChanged;
             _c.Knob.KeySeen -= OnKeySeen;
+            Loc.LanguageChanged -= OnLanguageChanged;
             _c.Knob.CaptureNextKey = null;
         };
     }
+
+    private void OnLanguageChanged() => Dispatcher.BeginInvoke(Load);
 
     private void OnChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -70,7 +74,7 @@ public partial class KnobPage : Page
             KeyChat.Content = KnobController.KeyName(s.KeyMixChat);
             KeyReset.Content = KnobController.KeyName(s.KeyMixReset);
         }
-        CycleSummary.Text = "Ciclo: " + string.Join(" → ", s.KnobCycle.Select(Controller.TargetName));
+        CycleSummary.Text = Loc.Format("Knob.CycleSummary", string.Join(" → ", s.KnobCycle.Select(Controller.TargetName)));
         KeyboardStatusText.Text = _c.KeyboardStatus;
         Describe(s.KnobTarget);
         _loading = false;
@@ -83,29 +87,29 @@ public partial class KnobPage : Page
         switch (t)
         {
             case KnobTarget.Mix:
-                left = "più Game, meno Chat";
-                right = "più Chat, meno Game";
-                press = _c.Settings.KnobMixPressMutes ? "silenzia / riattiva tutto l'audio" : "torna a «Bilanciato» (Game e Chat al 100%)";
-                note = "Compare l'indicatore di DualMix; il volume di Windows non cambia.";
+                left = Loc.Get("Knob.Describe.MixL");
+                right = Loc.Get("Knob.Describe.MixR");
+                press = _c.Settings.KnobMixPressMutes ? Loc.Get("Knob.Describe.MixPressMute") : Loc.Get("Knob.Describe.MixPressReset");
+                note = Loc.Get("Knob.Describe.MixNote");
                 break;
             case KnobTarget.Volume:
-                left = "abbassa il volume generale";
-                right = "alza il volume generale";
-                press = "silenzia / riattiva l'uscita";
-                note = "È il normale volume di Windows 11, con il suo indicatore: DualMix lo applica alla scheda audio reale, quindi ciò che Windows mostra è il volume vero.";
+                left = Loc.Get("Knob.Describe.VolL");
+                right = Loc.Get("Knob.Describe.VolR");
+                press = Loc.Get("Knob.Describe.VolPress");
+                note = Loc.Get("Knob.Describe.VolNote");
                 inv = false; // the rotation is handled by Windows itself
                 break;
             case KnobTarget.Game:
-                left = "abbassa il volume Game";
-                right = "alza il volume Game";
-                press = "silenzia / riattiva Game";
-                note = "Compare l'indicatore di DualMix; il volume di Windows non cambia.";
+                left = Loc.Get("Knob.Describe.GameL");
+                right = Loc.Get("Knob.Describe.GameR");
+                press = Loc.Get("Knob.Describe.GamePress");
+                note = Loc.Get("Knob.Describe.MixNote");
                 break;
             default:
-                left = "abbassa il volume Chat";
-                right = "alza il volume Chat";
-                press = "silenzia / riattiva Chat";
-                note = "Compare l'indicatore di DualMix; il volume di Windows non cambia.";
+                left = Loc.Get("Knob.Describe.ChatL");
+                right = Loc.Get("Knob.Describe.ChatR");
+                press = Loc.Get("Knob.Describe.ChatPress");
+                note = Loc.Get("Knob.Describe.MixNote");
                 break;
         }
         if (inv) (left, right) = (right, left);
@@ -138,7 +142,7 @@ public partial class KnobPage : Page
         }
         _c.Settings.KnobCycle = list;
         _c.KnobSettingsChanged();
-        CycleSummary.Text = "Ciclo: " + string.Join(" → ", list.Select(Controller.TargetName));
+        CycleSummary.Text = Loc.Format("Knob.CycleSummary", string.Join(" → ", list.Select(Controller.TargetName)));
     }
 
     private void Option_Changed(object sender, RoutedEventArgs e)
@@ -174,7 +178,7 @@ public partial class KnobPage : Page
     private void Hotkey_Click(object sender, RoutedEventArgs e)
     {
         _capturing = "hotkey";
-        HotkeyButton.Content = "Premi la combinazione…";
+        HotkeyButton.Content = Loc.Get("Knob.HotkeyPress");
         _c.Knob.CaptureNextKey = chord => Dispatcher.BeginInvoke(() =>
         {
             _capturing = null;
@@ -186,7 +190,7 @@ public partial class KnobPage : Page
             if (chord.Modifiers is HotkeyModifiers.None or HotkeyModifiers.Shift && !KnobController.UsableAlone(chord.Key))
             {
                 // A plain letter or digit would hijack normal typing.
-                HotkeyButton.Content = "Aggiungi Ctrl, Alt o Win";
+                HotkeyButton.Content = Loc.Get("Knob.HotkeyNeedMod");
                 return;
             }
             _c.Settings.KnobHotkeyKey = chord.Key;
@@ -211,7 +215,7 @@ public partial class KnobPage : Page
     {
         if (sender is not Wpf.Ui.Controls.Button { Tag: string which } button) return;
         _capturing = which;
-        button.Content = "Premi un tasto… (Esc = nessuno)";
+        button.Content = Loc.Get("Knob.KeyPressPrompt");
         _c.Knob.CaptureNextKey = chord => Dispatcher.BeginInvoke(() =>
         {
             _capturing = null;

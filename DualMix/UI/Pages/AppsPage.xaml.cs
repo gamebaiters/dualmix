@@ -115,8 +115,8 @@ public partial class AppsPage : Page
     {
         var dlg = new OpenFileDialog
         {
-            Title = "Scegli il programma da configurare",
-            Filter = "Programmi (*.exe)|*.exe",
+            Title = Loc.Get("Apps.PickTitle"),
+            Filter = Loc.Get("Apps.PickFilter"),
             CheckFileExists = true,
         };
         if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;

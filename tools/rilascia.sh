@@ -29,7 +29,7 @@ rsync -a --delete -e "ssh -o BatchMode=yes" "$build_host:$remote_dir/out/release
 echo "== shared disk: $share"
 disco mkdir "$share"
 # version.json goes last: a DualMix that reads the folder never finds a version whose package is not there yet
-for f in "$artifacts"/*.zip "$artifacts"/*.exe "$artifacts/SHA256SUMS.txt" "$root/packaging/LEGGIMI.txt" "$artifacts/version.json"; do
+for f in "$artifacts"/*.zip "$artifacts"/*.exe "$artifacts/SHA256SUMS.txt" "$root/packaging/README.txt" "$root/packaging/LEGGIMI.txt" "$artifacts/version.json"; do
   disco put "$f" "$share/" --sovrascrivi --verifica
 done
 disco ls "$share" -l

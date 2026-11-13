@@ -12,69 +12,68 @@
     </marker>
   </defs>
   <rect x="1" y="1" width="1098" height="418" rx="16" fill="url(#panelBg)" stroke="#273043" stroke-width="1.5"/>
-  <text x="32" y="42" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700">Auto-Builder GitHub &amp; Aggiornamenti Automatici</text>
-  <text x="32" y="66" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14">Compilazione automatica su GitHub Actions e aggiornamento verificato via SHA-256 (schema ispirato a RP Soundboard)</text>
+  <text x="32" y="42" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700">GitHub Auto-Builder &amp; SHA-256 Auto-Updater</text>
+  <text x="32" y="66" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14">Automated GitHub Actions release pipeline and verified in-app updates via version.json</text>
 
   <!-- Lane 1: GitHub Actions Auto-Builder -->
-  <text x="32" y="106" fill="#7dd3fc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="700">A. AUTO-BUILDER SU GITHUB ACTIONS (.github/workflows/release.yml)</text>
+  <text x="32" y="106" fill="#7dd3fc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="700">A. GITHUB ACTIONS AUTO-BUILDER (.github/workflows/release.yml)</text>
 
   <rect x="32" y="122" width="220" height="96" rx="12" fill="#182030" stroke="#3b82f6" stroke-width="1.4"/>
   <text x="142" y="150" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">1. Push tag vX.Y.Z</text>
-  <text x="142" y="172" fill="#93c5fd" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" text-anchor="middle">git tag -a v2.2.0</text>
-  <text x="142" y="192" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Verifica corrispondenza con</text>
+  <text x="142" y="172" fill="#93c5fd" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" text-anchor="middle">git tag -a v2.3.0</text>
+  <text x="142" y="192" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Validates match against</text>
   <text x="142" y="207" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">&lt;Version&gt; in DualMix.csproj</text>
 
   <rect x="292" y="122" width="246" height="96" rx="12" fill="#182030" stroke="#3b82f6" stroke-width="1.4"/>
   <text x="415" y="150" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">2. Build Release &amp; NSIS</text>
   <text x="415" y="172" fill="#93c5fd" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" text-anchor="middle">tools/build-release.sh</text>
-  <text x="415" y="192" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Publish .NET 10 ReadyToRun +</text>
+  <text x="415" y="192" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">.NET 10 ReadyToRun publish +</text>
   <text x="415" y="207" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">ZIP + Setup.exe + SHA256SUMS</text>
 
   <rect x="578" y="122" width="236" height="96" rx="12" fill="#182030" stroke="#3b82f6" stroke-width="1.4"/>
   <text x="696" y="150" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">3. GitHub Release</text>
   <text x="696" y="172" fill="#93c5fd" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" text-anchor="middle">releases/download/vX.Y.Z</text>
-  <text x="696" y="192" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Allega Setup.exe, win-x64.zip,</text>
-  <text x="696" y="207" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Rimuovi-vecchio.zip, version.json</text>
+  <text x="696" y="192" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Attaches Setup.exe, win-x64.zip,</text>
+  <text x="696" y="207" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Remove-old.zip, version.json</text>
 
   <rect x="854" y="122" width="214" height="96" rx="12" fill="#182030" stroke="#4ade80" stroke-width="1.4"/>
   <text x="961" y="150" fill="#86efac" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">4. Commit version.json</text>
   <text x="961" y="172" fill="#bbf7d0" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" text-anchor="middle">branch main</text>
-  <text x="961" y="192" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Pubblica l'impronta SHA-256</text>
-  <text x="961" y="207" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">e l'URL ufficiale dello ZIP</text>
+  <text x="961" y="192" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Publishes official SHA-256 hash</text>
+  <text x="961" y="207" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">and release ZIP download URL</text>
 
   <line x1="252" y1="170" x2="288" y2="170" stroke="#40beff" stroke-width="2" marker-end="url(#arrowCyan)"/>
   <line x1="538" y1="170" x2="574" y2="170" stroke="#40beff" stroke-width="2" marker-end="url(#arrowCyan)"/>
   <line x1="814" y1="170" x2="850" y2="170" stroke="#4ade80" stroke-width="2" marker-end="url(#arrowGreen)"/>
 
   <!-- Lane 2: Client Auto-Updater -->
-  <text x="32" y="264" fill="#86efac" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="700">B. AUTO-UPDATER DENTRO DUALMIX (DualMix/Core/Updater.cs + setup.ps1 -Update)</text>
+  <text x="32" y="264" fill="#86efac" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="700">B. IN-APP AUTO-UPDATER (DualMix/Core/Updater.cs + setup.ps1 -Update)</text>
 
   <rect x="32" y="280" width="220" height="106" rx="12" fill="#182030" stroke="#4ade80" stroke-width="1.3"/>
-  <text x="142" y="308" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">1. Controllo periodico</text>
-  <text x="142" y="330" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">1 min dopo l'avvio e ogni 24 h</text>
-  <text x="142" y="350" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Legge version.json via HTTPS</text>
-  <text x="142" y="368" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">(o da cartella locale in settings)</text>
+  <text x="142" y="308" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">1. Periodic Check</text>
+  <text x="142" y="330" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">1 min after launch &amp; every 24 h</text>
+  <text x="142" y="350" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Fetches version.json over HTTPS</text>
+  <text x="142" y="368" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">(or local update folder override)</text>
 
   <rect x="292" y="280" width="246" height="106" rx="12" fill="#182030" stroke="#4ade80" stroke-width="1.3"/>
-  <text x="415" y="308" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">2. Download &amp; Verifica</text>
-  <text x="415" y="330" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Scarica lo ZIP in %TEMP%</text>
-  <text x="415" y="350" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Controllo rigoroso SHA-256</text>
-  <text x="415" y="368" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Rifiuta se non corrisponde o non HTTPS</text>
+  <text x="415" y="308" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">2. Download &amp; Verify</text>
+  <text x="415" y="330" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Downloads ZIP into %TEMP%</text>
+  <text x="415" y="350" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Strict SHA-256 verification</text>
+  <text x="415" y="368" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Rejects mismatch or non-HTTPS</text>
 
   <rect x="578" y="280" width="236" height="106" rx="12" fill="#182030" stroke="#4ade80" stroke-width="1.3"/>
-  <text x="696" y="308" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">3. Setup silenzioso</text>
+  <text x="696" y="308" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">3. Silent Swap</text>
   <text x="696" y="330" fill="#93c5fd" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" text-anchor="middle">setup.ps1 -Update</text>
-  <text x="696" y="350" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Chiude DualMix in modo pulito</text>
-  <text x="696" y="368" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Sostituisce con rollback sicuro</text>
+  <text x="696" y="350" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Cleanly shuts down DualMix</text>
+  <text x="696" y="368" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Atomic swap with safe rollback</text>
 
   <rect x="854" y="280" width="214" height="106" rx="12" fill="#4ade80" fill-opacity="0.10" stroke="#4ade80" stroke-width="1.5"/>
-  <text x="961" y="308" fill="#86efac" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">4. Riavvio automatico</text>
-  <text x="961" y="330" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">DualMix riparte in tray</text>
-  <text x="961" y="350" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Impostazioni e cavi intatti</text>
-  <text x="961" y="368" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">(A partita in corso solo avvisa)</text>
+  <text x="961" y="308" fill="#86efac" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="700" text-anchor="middle">4. Auto Relaunch</text>
+  <text x="961" y="330" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Restarts into system tray</text>
+  <text x="961" y="350" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle">Keeps settings and audio state</text>
+  <text x="961" y="368" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">(Notify-only during fullscreen)</text>
 
   <line x1="252" y1="333" x2="288" y2="333" stroke="#4ade80" stroke-width="2" marker-end="url(#arrowGreen)"/>
   <line x1="538" y1="333" x2="574" y2="333" stroke="#4ade80" stroke-width="2" marker-end="url(#arrowGreen)"/>
   <line x1="814" y1="333" x2="850" y2="333" stroke="#4ade80" stroke-width="2" marker-end="url(#arrowGreen)"/>
-
 </svg>

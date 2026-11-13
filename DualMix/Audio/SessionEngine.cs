@@ -497,7 +497,7 @@ public sealed class SessionEngine : IDisposable
         if (isSystem)
         {
             key = RuleSet.SystemSoundsKey;
-            display = "Suoni di sistema";
+            display = Loc.Get("Apps.SystemSounds");
         }
         else
         {

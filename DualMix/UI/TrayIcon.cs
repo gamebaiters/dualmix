@@ -33,26 +33,26 @@ public sealed class TrayIcon : IDisposable
             Font = _menuFont,
         };
 
-        var openItem = new WinForms.ToolStripMenuItem("Apri DualMix", null, (_, _) => open()) { Font = _boldFont };
+        var openItem = new WinForms.ToolStripMenuItem(Loc.Get("Tray.Open"), null, (_, _) => open()) { Font = _boldFont };
         _mixLabel = new WinForms.ToolStripMenuItem("") { Enabled = false };
-        var allGame = new WinForms.ToolStripMenuItem("Tutto Game", null, (_, _) => _controller.SetMix(-1, false));
-        var center = new WinForms.ToolStripMenuItem("Bilanciato", null, (_, _) => _controller.ResetMix());
-        var allChat = new WinForms.ToolStripMenuItem("Tutto Chat", null, (_, _) => _controller.SetMix(1, false));
-        _autostartItem = new WinForms.ToolStripMenuItem("Avvia con Windows", null, (_, _) =>
+        var allGame = new WinForms.ToolStripMenuItem(Loc.Get("Tray.AllGame"), null, (_, _) => _controller.SetMix(-1, false));
+        var center = new WinForms.ToolStripMenuItem(Loc.Get("Tray.Balanced"), null, (_, _) => _controller.ResetMix());
+        var allChat = new WinForms.ToolStripMenuItem(Loc.Get("Tray.AllChat"), null, (_, _) => _controller.SetMix(1, false));
+        _autostartItem = new WinForms.ToolStripMenuItem(Loc.Get("Tray.Autostart"), null, (_, _) =>
         {
             var s = _controller.Settings;
             s.StartWithWindows = !s.StartWithWindows;
             AutoStart.Set(s.StartWithWindows);
             _controller.ScheduleSave();
         });
-        _knobMenu = new WinForms.ToolStripMenuItem("Funzione rotella");
+        _knobMenu = new WinForms.ToolStripMenuItem(Loc.Get("Tray.KnobSubMenu"));
         foreach (var t in new[] { KnobTarget.Mix, KnobTarget.Volume, KnobTarget.Game, KnobTarget.Chat })
         {
             var target = t;
             var item = new WinForms.ToolStripMenuItem(Controller.TargetName(t), null, (_, _) => _controller.SetKnobTarget(target, true)) { Tag = t };
             _knobMenu.DropDownItems.Add(item);
         }
-        var exitItem = new WinForms.ToolStripMenuItem("Esci", null, (_, _) => exit());
+        var exitItem = new WinForms.ToolStripMenuItem(Loc.Get("Tray.Exit"), null, (_, _) => exit());
 
         menu.Items.AddRange(new WinForms.ToolStripItem[]
         {
@@ -73,10 +73,23 @@ public sealed class TrayIcon : IDisposable
         menu.Opening += (_, _) =>
         {
             ApplyTheme();
+            openItem.Text = Loc.Get("Tray.Open");
+            allGame.Text = Loc.Get("Tray.AllGame");
+            center.Text = Loc.Get("Tray.Balanced");
+            allChat.Text = Loc.Get("Tray.AllChat");
+            _autostartItem.Text = Loc.Get("Tray.Autostart");
+            _knobMenu.Text = Loc.Get("Tray.KnobSubMenu");
+            exitItem.Text = Loc.Get("Tray.Exit");
             _autostartItem.Checked = AutoStart.IsEnabled;
             _mixLabel.Text = $"Game {_controller.GameLevelText} · Chat {_controller.ChatLevelText}";
             foreach (WinForms.ToolStripMenuItem item in _knobMenu.DropDownItems)
-                item.Checked = item.Tag is KnobTarget t && t == _controller.Settings.KnobTarget;
+            {
+                if (item.Tag is KnobTarget t)
+                {
+                    item.Text = Controller.TargetName(t);
+                    item.Checked = t == _controller.Settings.KnobTarget;
+                }
+            }
         };
 
         _icon = new WinForms.NotifyIcon

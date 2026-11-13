@@ -58,5 +58,6 @@ jobs:
           name: DualMix-win-x64-ci
           path: |
             out/release/*
+            packaging/README.txt
             packaging/LEGGIMI.txt
           retention-days: 14

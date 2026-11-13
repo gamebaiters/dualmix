@@ -28,6 +28,7 @@ public partial class MixerPage : Page
         {
             _c.PropertyChanged += OnChanged;
             _c.EngineChanged += RefreshEngine;
+            Loc.LanguageChanged += OnLanguageChanged;
             _meterTimer.Start();
             RefreshEngine();
             RefreshMuteIcons();
@@ -36,9 +37,12 @@ public partial class MixerPage : Page
         {
             _c.PropertyChanged -= OnChanged;
             _c.EngineChanged -= RefreshEngine;
+            Loc.LanguageChanged -= OnLanguageChanged;
             _meterTimer.Stop();
         };
     }
+
+    private void OnLanguageChanged() => Dispatcher.BeginInvoke(RefreshEngine);
 
     private void OnChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -76,8 +80,8 @@ public partial class MixerPage : Page
     private void RefreshEngine()
     {
         EngineChip.Text = _c.RouterRunning
-            ? (_c.RouterIdle ? "Attivo · in attesa di audio" : $"Attivo · {_c.LatencyText}")
-            : _c.VirtualActive ? "Avvio…" : _c.EngineText;
+            ? (_c.RouterIdle ? Loc.Get("Mixer.ChipActiveIdle") : Loc.Format("Mixer.ChipActiveLat", _c.LatencyText))
+            : _c.VirtualActive ? Loc.Get("Mixer.ChipStarting") : _c.EngineText;
         EngineDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, _c.Severity switch
         {
             StatusSeverity.Success => "SystemFillColorSuccessBrush",
@@ -86,10 +90,10 @@ public partial class MixerPage : Page
             _ => "SystemFillColorAttentionBrush",
         });
         FormatLine.Text = _c.FormatText;
-        GameDevice.Text = _c.GameViaBus ? $"Uscita per le app: {Short(_c.GameDeviceName)}"
-            : _c.VirtualActive ? "Diretto sulla scheda audio · latenza zero"
-            : "Volume per applicazione";
-        ChatDevice.Text = _c.VirtualActive ? $"Uscita per le app: {Short(_c.ChatDeviceName)}" : "Volume per applicazione";
+        GameDevice.Text = _c.GameViaBus ? Loc.Format("Mixer.GameAppOut", Short(_c.GameDeviceName))
+            : _c.VirtualActive ? Loc.Get("Mixer.GameDirectCard")
+            : Loc.Get("Mixer.PerAppVol");
+        ChatDevice.Text = _c.VirtualActive ? Loc.Format("Mixer.GameAppOut", Short(_c.ChatDeviceName)) : Loc.Get("Mixer.PerAppVol");
     }
 
     private void UpdateMeters()

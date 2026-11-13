@@ -43,7 +43,7 @@ public sealed class AppRow : INotifyPropertyChanged
 
     public string DisplayName
     {
-        get => _displayName;
+        get => IsSystem ? Loc.Get("Apps.SystemSounds") : _displayName;
         private set => Set(ref _displayName, value);
     }
 
@@ -57,12 +57,12 @@ public sealed class AppRow : INotifyPropertyChanged
         {
             var where = _channel switch
             {
-                Channel.Game => "Game",
-                Channel.Chat => "Chat",
-                _ => "diretto all'uscita, fuori dal mix",
+                Channel.Game => Loc.Get("Common.Game"),
+                Channel.Chat => Loc.Get("Common.Chat"),
+                _ => Loc.Get("AppRow.DirectSub"),
             };
-            var how = _explicit ? "scelto da te" : "automatico";
-            var state = !_active ? " · non attiva" : _fixedOutput ? " · uscita fissa nell'app" : "";
+            var how = _explicit ? Loc.Get("AppRow.Manual") : Loc.Get("AppRow.Auto");
+            var state = !_active ? Loc.Get("AppRow.Inactive") : _fixedOutput ? Loc.Get("AppRow.FixedOutput") : "";
             return IsSystem ? $"{where}{state}" : $"{where} · {how}{state}";
         }
     }
@@ -88,10 +88,7 @@ public sealed class AppRow : INotifyPropertyChanged
     public bool IsExplicit => _explicit;
 
     /// <summary>Explains the state of the row (shown as a tooltip).</summary>
-    public string Hint => _fixedOutput
-        ? "Questa app ha un dispositivo di uscita scelto nelle sue impostazioni, quindi non passa dall'uscita virtuale DualMix. " +
-          "Viene comunque bilanciata, tramite il suo volume in Windows. Per farla passare da DualMix imposta l'uscita su «Predefinito» nell'app."
-        : Key;
+    public string Hint => _fixedOutput ? Loc.Get("AppRow.FixedHint") : Key;
     public bool Active => _active;
     public double Opacity => _active ? 1.0 : 0.6;
 

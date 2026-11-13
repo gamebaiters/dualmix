@@ -72,7 +72,7 @@ public static class DriverSetup
         try
         {
             using var p = Process.Start(psi);
-            if (p == null) return new SetupResult { Message = "Impossibile avviare l'installazione." };
+            if (p == null) return new SetupResult { Message = Loc.Get("Setup.CantStart") };
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromMinutes(6));
             await p.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
@@ -80,11 +80,11 @@ public static class DriverSetup
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
             Log.Warn("Elevated setup declined by the user (UAC)");
-            return new SetupResult { Declined = true, Message = "Autorizzazione amministratore negata." };
+            return new SetupResult { Declined = true, Message = Loc.Get("Setup.UacDeclined") };
         }
         catch (OperationCanceledException)
         {
-            return new SetupResult { Message = "L'installazione non ha risposto in tempo." };
+            return new SetupResult { Message = Loc.Get("Setup.Timeout") };
         }
         catch (Exception ex)
         {
@@ -106,7 +106,7 @@ public static class DriverSetup
         {
             Log.Error("Cannot read setup result", ex);
         }
-        return new SetupResult { Message = "Installazione terminata senza risultato." };
+        return new SetupResult { Message = Loc.Get("Setup.NoResult") };
     }
 
     // ================================================================== elevated side
@@ -114,6 +114,7 @@ public static class DriverSetup
     /// <summary>Entry point of "DualMix.exe --setup &lt;result&gt; [--install] [--repair]" (runs as administrator).</summary>
     public static int RunElevated(string[] args)
     {
+        Loc.Initialize(SettingsStore.Load().Language);
         var idx = Array.FindIndex(args, a => a.Equals("--setup", StringComparison.OrdinalIgnoreCase));
         var resultFile = idx >= 0 && idx + 1 < args.Length ? args[idx + 1] : Path.Combine(Path.GetTempPath(), "dualmix-setup.json");
         bool install = args.Contains("--install", StringComparer.OrdinalIgnoreCase);
@@ -134,11 +135,11 @@ public static class DriverSetup
                 if (removeDrivers)
                 {
                     int n = RemoveCables(all: true);
-                    messages.Add($"Cavi virtuali rimossi: {n}.");
+                    messages.Add(Loc.Format("Setup.CablesRemoved", n));
                 }
                 else if (Unconfigure())
                 {
-                    messages.Add("Cavi virtuali riportati ai nomi originali.");
+                    messages.Add(Loc.Get("Setup.CablesRestored"));
                 }
                 result.Ok = true;
                 result.Message = string.Join(" ", messages);
@@ -151,7 +152,7 @@ public static class DriverSetup
             {
                 RepairAudioServices();
                 result.Repaired = true;
-                messages.Add("Servizio audio di Windows riavviato.");
+                messages.Add(Loc.Get("Setup.AudioRepaired"));
             }
 
             if (install && !CablesPresent())
@@ -167,7 +168,7 @@ public static class DriverSetup
                     if (!WaitFor(CablesPresent, TimeSpan.FromSeconds(20)))
                     {
                         result.RebootRecommended = true;
-                        messages.Add("Driver installato: riavvia il PC per completare.");
+                        messages.Add(Loc.Get("Setup.RebootNeeded"));
                     }
                 }
 
@@ -190,7 +191,7 @@ public static class DriverSetup
             else if (install && !result.RebootRecommended)
             {
                 result.RebootRecommended = true;
-                messages.Add("Riavvia il PC per completare l'installazione del driver.");
+                messages.Add(Loc.Get("Setup.RebootPending"));
             }
 
             result.Ok = true;
@@ -248,15 +249,15 @@ public static class DriverSetup
 
             // Never run something we did not verify: valid Authenticode signature from VB-Audio's author,
             // and the driver catalog signed by Microsoft (Windows Hardware Compatibility Publisher).
-            var signer = VerifySignature(setup) ?? throw new InvalidOperationException("Firma del setup VB-CABLE non valida.");
+            var signer = VerifySignature(setup) ?? throw new InvalidOperationException(Loc.Get("Setup.VbSigInvalid"));
             if (!signer.Contains("BUREL", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Setup VB-CABLE firmato da un editore inatteso: " + signer);
+                throw new InvalidOperationException(Loc.Format("Setup.VbUnexpectedSigner", signer));
             var cat = Path.Combine(dir, "vbaudio_cable64_win10.cat");
             if (File.Exists(cat))
             {
                 var catSigner = VerifySignature(cat);
                 if (catSigner == null || !catSigner.Contains("Microsoft", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("Catalogo driver VB-CABLE non firmato da Microsoft.");
+                    throw new InvalidOperationException(Loc.Get("Setup.VbCatInvalid"));
             }
             Log.Info("VB-CABLE package verified, signer: " + signer);
 
@@ -266,14 +267,14 @@ public static class DriverSetup
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            using var p = Process.Start(psi) ?? throw new InvalidOperationException("Impossibile avviare il setup VB-CABLE.");
+            using var p = Process.Start(psi) ?? throw new InvalidOperationException(Loc.Get("Setup.VbCantLaunch"));
             if (!p.WaitForExit(TimeSpan.FromMinutes(4)))
             {
                 try { p.Kill(); } catch { /* ignore */ }
-                throw new TimeoutException("Il setup VB-CABLE non ha terminato in tempo.");
+                throw new TimeoutException(Loc.Get("Setup.VbTimeout"));
             }
             Log.Info($"VB-CABLE setup exit code {p.ExitCode}");
-            messages.Add("Driver VB-CABLE installato.");
+            messages.Add(Loc.Get("Setup.VbInstalled"));
         }
         finally
         {
@@ -310,7 +311,7 @@ public static class DriverSetup
     /// </summary>
     private static void InstallCablePack(string packPath, System.Collections.Generic.List<string> messages, SetupResult result)
     {
-        if (!File.Exists(packPath)) throw new FileNotFoundException("Pacchetto non trovato: " + packPath);
+        if (!File.Exists(packPath)) throw new FileNotFoundException(Loc.Format("Setup.PackNotFound", packPath));
 
         var work = Path.Combine(Path.GetTempPath(), "DualMix-pack-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(work);
@@ -326,7 +327,7 @@ public static class DriverSetup
 
             var setups = Directory.GetFiles(work, "VBCABLE_Setup_x64.exe", SearchOption.AllDirectories)
                                   .OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
-            if (setups.Count == 0) throw new InvalidOperationException("Il file non contiene un driver VB-CABLE (VBCABLE_Setup_x64.exe mancante).");
+            if (setups.Count == 0) throw new InvalidOperationException(Loc.Get("Setup.PackEmpty"));
 
             foreach (var setup in setups)
             {
@@ -335,9 +336,9 @@ public static class DriverSetup
                 if (Devices.List(DataFlow.Render, DeviceState.Active | DeviceState.Disabled).Any(d => d.InterfaceName.Equals(deviceName, StringComparison.OrdinalIgnoreCase)))
                     continue; // this cable is already there
 
-                var signer = VerifySignature(setup) ?? throw new InvalidOperationException("Firma del setup non valida: " + Path.GetFileName(dir));
+                var signer = VerifySignature(setup) ?? throw new InvalidOperationException(Loc.Format("Setup.PackSigInvalid", Path.GetFileName(dir)));
                 if (!signer.Contains("Burel", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("Setup firmato da un editore inatteso: " + signer);
+                    throw new InvalidOperationException(Loc.Format("Setup.VbUnexpectedSigner", signer));
 
                 int before = CableDeviceCount();
                 var defaults = DefaultsSnapshot.Take();
@@ -356,21 +357,18 @@ public static class DriverSetup
                     Log.Warn($"'{deviceName}' did not load (endpoint appeared: {appeared}, problem code {problem}): removing it");
                     RunSetupProgram(setup, "-u -h");
                     result.PackRejected = true;
-                    messages.Add($"Windows non riesce a caricare il driver «{deviceName}» di questo pacchetto" +
-                                 (problem != 0 ? $" (codice {problem})" : "") +
-                                 ": è una versione vecchia, bloccata dalla protezione «Integrità della memoria». " +
-                                 "Scarica la versione aggiornata del pacchetto A+B (Pack45 o successiva) dal link ricevuto da VB-Audio.");
+                    messages.Add(Loc.Format("Setup.PackRejected", deviceName, problem != 0 ? $" ({problem})" : ""));
                     return;
                 }
 
-                messages.Add($"Cavo virtuale «{deviceName}» installato.");
+                messages.Add(Loc.Format("Setup.CableInstalled", deviceName));
                 result.Installed = true;
             }
 
             // With two bit-transparent cables in place the free VB-CABLE (whose captured audio is requantised)
             // is not needed any more: remove it so that only the two DualMix devices remain.
             var transparent = Devices.FindBuses(Devices.List(DataFlow.Render)).Count(d => !d.IsLossyCable);
-            if (transparent >= 2 && RemoveFreeCable()) messages.Add("VB-CABLE gratuito rimosso (sostituito dai cavi A e B).");
+            if (transparent >= 2 && RemoveFreeCable()) messages.Add(Loc.Get("Setup.FreeRemoved"));
 
             // Keep a copy: DualMix can then reinstall the cable by itself.
             try
@@ -467,11 +465,11 @@ public static class DriverSetup
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Impossibile avviare " + Path.GetFileName(setup));
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException(Loc.Format("Setup.CantLaunchSetup", Path.GetFileName(setup)));
         if (!p.WaitForExit(TimeSpan.FromMinutes(4)))
         {
             try { p.Kill(); } catch { /* ignore */ }
-            throw new TimeoutException("Il setup del driver non ha terminato in tempo.");
+            throw new TimeoutException(Loc.Get("Setup.DriverTimeout"));
         }
         return p.ExitCode;
     }
@@ -543,7 +541,7 @@ public static class DriverSetup
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Impossibile avviare PowerShell.");
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException(Loc.Get("Setup.PowerShellFailed"));
         var output = p.StandardOutput.ReadToEnd();
         p.WaitForExit(60000);
         Log.Info("Audio services restarted: " + output.Replace(Environment.NewLine, " ").Trim());
@@ -599,7 +597,7 @@ public static class DriverSetup
 
         var output = s.OutputChosenByUser && render.Any(d => d.Id == s.OutputDeviceId)
             ? render.First(d => d.Id == s.OutputDeviceId)
-            : Devices.FindPreferredOutput(render);
+            : Devices.FindPreferredOutput(render, s.DefaultsBackup?.Multimedia ?? Devices.GetDefaultId(Role.Multimedia));
 
         if (game != null && !game.Description.Equals(Devices.GameEndpointName, StringComparison.Ordinal))
         {
@@ -641,8 +639,8 @@ public static class DriverSetup
         {
             Log.Info($"Cable endpoints configured (elevated={elevated}, failed={failed})");
             messages?.Add(game != null
-                ? "Dispositivi \"DualMix Game\" e \"DualMix Chat\" configurati."
-                : "Dispositivo \"DualMix Chat\" configurato.");
+                ? Loc.Get("Setup.ConfiguredBoth")
+                : Loc.Get("Setup.ConfiguredChat"));
         }
         return new ConfigureResult(changed, failed);
     }

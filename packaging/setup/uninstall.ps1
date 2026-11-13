@@ -19,6 +19,8 @@
 param([switch]$RemoveDrivers, [switch]$Purge, [switch]$RestoreDucking, [switch]$Pause)
 
 $ErrorActionPreference = 'Continue'
+$isIt = [System.Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName -eq 'it'
+function T([string]$en, [string]$it) { if ($isIt) { $it } else { $en } }
 $dest = Join-Path $env:LOCALAPPDATA 'Programs\DualMix'
 $dll = Join-Path $dest 'DualMix.dll'
 Set-Location $env:TEMP   # never keep the folder being deleted as the current directory
@@ -40,7 +42,7 @@ $hostExe = Find-DesktopHost
 
 # 1. close DualMix (clean exit: volumes, per-app outputs and default devices are restored by DualMix itself)
 if (Get-DualMixProcesses) {
-    Write-Host 'Chiudo DualMix...'
+    Write-Host (T 'Closing DualMix...' 'Chiudo DualMix...')
     if ($hostExe -and (Test-Path $dll)) { Start-Process $hostExe -ArgumentList "`"$dll`" --exit" -Wait -WindowStyle Hidden }
     $deadline = (Get-Date).AddSeconds(15)
     while ((Get-DualMixProcesses) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
@@ -52,12 +54,12 @@ if ($hostExe -and (Test-Path $dll)) {
     $result = Join-Path $env:TEMP 'dualmix-uninstall.json'
     Remove-Item $result -ErrorAction SilentlyContinue
     $what = if ($RemoveDrivers) { '--remove-drivers' } else { '--unconfigure' }
-    Write-Host 'Ripristino i cavi virtuali (Windows chiede l''autorizzazione di amministratore)...'
+    Write-Host (T 'Restoring virtual cables (Windows will prompt for administrator permission)...' 'Ripristino i cavi virtuali (Windows chiede l''autorizzazione di amministratore)...')
     try {
         Start-Process $hostExe -ArgumentList "`"$dll`" --setup `"$result`" $what" -Verb RunAs -Wait -WindowStyle Hidden
         if (Test-Path $result) { Write-Host ((Get-Content $result -Raw | ConvertFrom-Json).Message); Remove-Item $result -Force }
     } catch {
-        Write-Host 'Autorizzazione negata: i cavi virtuali restano installati con i nomi "DualMix Game" / "DualMix Chat".'
+        Write-Host (T 'Administrator permission declined: virtual cables remain installed as "DualMix Game" / "DualMix Chat".' 'Autorizzazione negata: i cavi virtuali restano installati con i nomi "DualMix Game" / "DualMix Chat".')
     }
 }
 
@@ -78,8 +80,8 @@ if ($Purge) {
 
 $left = @()
 if (Test-Path $dest) { $left += $dest }
-if (Get-ScheduledTask -TaskName 'DualMix' -ErrorAction SilentlyContinue) { $left += 'attivita'' pianificata DualMix' }
-if ($left) { Write-Host ('Attenzione, non rimosso: ' + ($left -join ', ')) }
-else { Write-Host 'DualMix disinstallato.' }
-if (-not $Purge) { Write-Host "Impostazioni e log conservati in $(Join-Path $env:APPDATA 'DualMix') (usa -Purge per eliminarli)." }
-if ($Pause) { Write-Host ''; Read-Host 'Premi Invio per chiudere' | Out-Null }
+if (Get-ScheduledTask -TaskName 'DualMix' -ErrorAction SilentlyContinue) { $left += (T 'DualMix scheduled task' 'attivita'' pianificata DualMix') }
+if ($left) { Write-Host ((T 'Warning, could not remove: ' 'Attenzione, non rimosso: ') + ($left -join ', ')) }
+else { Write-Host (T 'DualMix uninstalled.' 'DualMix disinstallato.') }
+if (-not $Purge) { Write-Host (T "Settings and logs kept in $(Join-Path $env:APPDATA 'DualMix') (pass -Purge to delete them)." "Impostazioni e log conservati in $(Join-Path $env:APPDATA 'DualMix') (usa -Purge per eliminarli).") }
+if ($Pause) { Write-Host ''; Read-Host (T 'Press Enter to close' 'Premi Invio per chiudere') | Out-Null }

@@ -17,9 +17,9 @@
     <ApplicationIcon>Assets\dualmix.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>DualMix.Program</StartupObject>
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
     <Product>DualMix</Product>
-    <Description>Mixer Game/Chat per Windows (stile ChatMix)</Description>
+    <Description>Universal Game/Chat Audio Mixer for Windows</Description>
     <Copyright>Marco</Copyright>
     <InvariantGlobalization>false</InvariantGlobalization>
     <SatelliteResourceLanguages>it;en</SatelliteResourceLanguages>

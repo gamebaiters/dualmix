@@ -21,11 +21,17 @@ public partial class GeneralPage : Page
         Loaded += (_, _) =>
         {
             App.Current.Updater.Changed += OnUpdaterChanged;
+            Loc.LanguageChanged += OnLanguageChanged;
             Load();
         };
-        Unloaded += (_, _) => App.Current.Updater.Changed -= OnUpdaterChanged;
+        Unloaded += (_, _) =>
+        {
+            App.Current.Updater.Changed -= OnUpdaterChanged;
+            Loc.LanguageChanged -= OnLanguageChanged;
+        };
     }
 
+    private void OnLanguageChanged() => Dispatcher.BeginInvoke(Load);
     private void OnUpdaterChanged() => Dispatcher.BeginInvoke(ShowUpdateState);
 
     private void ShowUpdateState()
@@ -35,14 +41,16 @@ public partial class GeneralPage : Page
         UpdateText.Text = u.State switch
         {
             UpdateState.Idle => _c.Settings.UpdateMode == UpdateMode.Off
-                ? "La ricerca automatica di nuove versioni è disattivata."
-                : "Le nuove versioni vengono cercate all'avvio e una volta al giorno.",
+                ? Loc.Get("General.UpdateIdleOff")
+                : Loc.Get("General.UpdateIdleOn"),
             UpdateState.Downloading => $"{u.StatusText} {u.Progress:P0}",
             UpdateState.Available when u.Available?.Notes is { } notes => $"{u.StatusText} {notes}",
             _ => u.StatusText,
         };
         UpdateButton.IsEnabled = !u.Busy;
-        UpdateButton.Content = u.Available != null && u.State != UpdateState.UpToDate ? $"Installa {u.Available.Version}" : "Controlla ora";
+        UpdateButton.Content = u.Available != null && u.State != UpdateState.UpToDate
+            ? Loc.Format("General.UpdateInstall", u.Available.Version)
+            : Loc.Get("General.UpdateCheck");
     }
 
     private async void Update_Click(object sender, RoutedEventArgs e)
@@ -79,6 +87,9 @@ public partial class GeneralPage : Page
         ThSystem.IsChecked = s.Theme == ThemePreference.System;
         ThLight.IsChecked = s.Theme == ThemePreference.Light;
         ThDark.IsChecked = s.Theme == ThemePreference.Dark;
+        LangAuto.IsChecked = s.Language == LanguagePreference.Auto;
+        LangEn.IsChecked = s.Language == LanguagePreference.English;
+        LangIt.IsChecked = s.Language == LanguagePreference.Italian;
         UpAuto.IsChecked = s.UpdateMode == UpdateMode.Auto;
         UpNotify.IsChecked = s.UpdateMode == UpdateMode.Notify;
         UpOff.IsChecked = s.UpdateMode == UpdateMode.Off;
@@ -113,13 +124,23 @@ public partial class GeneralPage : Page
         if (Window.GetWindow(this) is Window w) ThemeService.Watch(w, pref);
     }
 
-    private void TestOsd_Click(object sender, RoutedEventArgs e) => App.Current.ShowOsd(new OsdInfo(OsdKind.Mix, "Mix",
-        Math.Abs(_c.Mix) < 0.001 ? "Bilanciato" : $"Game {_c.GameLevelText} · Chat {_c.ChatLevelText}", _c.Mix), force: true);
+    private void Language_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_loading || sender is not RadioButton { Tag: string tag } || !Enum.TryParse<LanguagePreference>(tag, out var pref)) return;
+        _c.Settings.Language = pref;
+        _c.ScheduleSave();
+        Loc.SetLanguage(pref);
+    }
+
+    private void Wizard_Click(object sender, RoutedEventArgs e) => App.Current.ShowSetupWizard();
+
+    private void TestOsd_Click(object sender, RoutedEventArgs e) => App.Current.ShowOsd(new OsdInfo(OsdKind.Mix, Loc.Get("Common.Mix"),
+        Math.Abs(_c.Mix) < 0.001 ? Loc.Get("Common.Balanced") : $"Game {_c.GameLevelText} · Chat {_c.ChatLevelText}", _c.Mix), force: true);
 
     private async void Diag_Click(object sender, RoutedEventArgs e)
     {
         DiagButton.IsEnabled = false;
-        DiagText.Text = "Diagnostica in corso… (circa un minuto)";
+        DiagText.Text = Loc.Get("General.DiagRunningText");
         try
         {
             var (host, prefix) = AppPaths.Launcher;
@@ -127,12 +148,12 @@ public partial class GeneralPage : Page
             using var p = Process.Start(psi);
             if (p != null) await p.WaitForExitAsync();
             var file = Path.Combine(AppPaths.DataDir, "diag.txt");
-            DiagText.Text = p?.ExitCode == 0 ? "Tutto a posto. Report aperto nel Blocco note." : "Trovati problemi: guarda il report aperto nel Blocco note.";
+            DiagText.Text = p?.ExitCode == 0 ? Loc.Get("General.DiagOk") : Loc.Get("General.DiagIssues");
             if (File.Exists(file)) Process.Start(new ProcessStartInfo("notepad.exe", $"\"{file}\"") { UseShellExecute = true });
         }
         catch (Exception ex)
         {
-            DiagText.Text = "Impossibile eseguire la diagnostica: " + ex.Message;
+            DiagText.Text = Loc.Format("General.DiagFail", ex.Message);
         }
         finally
         {

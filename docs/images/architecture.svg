@@ -18,45 +18,45 @@
     </marker>
   </defs>
   <rect x="1" y="1" width="1098" height="518" rx="16" fill="url(#panelBg)" stroke="#273043" stroke-width="1.5"/>
-  <text x="32" y="42" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700">Architettura audio — come DualMix separa e mixa Game e Chat</text>
-  <text x="32" y="66" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14">Percorso a 32 bit float senza conversioni di frequenza, con compensazione di clock e zero attenuazione chiamate (ducking off)</text>
+  <text x="32" y="42" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700">Audio Architecture — Universal Game &amp; Chat Mixing on Any PC</text>
+  <text x="32" y="66" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14">32-bit float pipeline matching your playback device, with clock-drift compensation or driverless Per-App fallback</text>
 
   <!-- Column headers -->
-  <text x="145" y="102" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="1">1. APPLICAZIONI</text>
-  <text x="415" y="102" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="1">2. CAVI VIRTUALI (VB-CABLE A+B)</text>
-  <text x="705" y="102" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="1">3. MOTORE DUALMIX</text>
-  <text x="970" y="102" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="1">4. USCITA REALE</text>
+  <text x="145" y="102" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="1">1. APPLICATIONS</text>
+  <text x="415" y="102" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="1">2. VIRTUAL CABLES (VB-CABLE A+B)</text>
+  <text x="705" y="102" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="1">3. DUALMIX ENGINE</text>
+  <text x="970" y="102" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" letter-spacing="1">4. PHYSICAL OUTPUT</text>
 
   <!-- Col 1: Apps -->
   <rect x="32" y="122" width="226" height="106" rx="12" fill="#ff7838" fill-opacity="0.10" stroke="#ff7838" stroke-width="1.5"/>
-  <text x="50" y="150" fill="#ffa040" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">Giochi, Media, Browser</text>
-  <text x="50" y="174" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">• Giochi, Spotify, Chrome, VLC…</text>
-  <text x="50" y="196" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">• Instradati in automatico su Game</text>
-  <text x="50" y="216" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12">(o modificabili nella scheda App)</text>
+  <text x="50" y="150" fill="#ffa040" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">Games, Media, Browsers</text>
+  <text x="50" y="174" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">• Games, Spotify, Chrome, VLC…</text>
+  <text x="50" y="196" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">• Automatically assigned to Game</text>
+  <text x="50" y="216" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12">(customizable per app in Apps tab)</text>
 
   <rect x="32" y="250" width="226" height="106" rx="12" fill="#40beff" fill-opacity="0.10" stroke="#40beff" stroke-width="1.5"/>
-  <text x="50" y="278" fill="#40beff" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">Chat vocale</text>
+  <text x="50" y="278" fill="#40beff" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">Voice Chat</text>
   <text x="50" y="302" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">• Discord, TeamSpeak, Mumble…</text>
-  <text x="50" y="324" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">• Riconosciuti da soli → Chat</text>
-  <text x="50" y="344" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12">(uscita app su «Predefinito»)</text>
+  <text x="50" y="324" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">• Auto-detected → Chat channel</text>
+  <text x="50" y="344" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12">(or leave app output on Default)</text>
 
   <rect x="32" y="382" width="226" height="82" rx="12" fill="#94a3b8" fill-opacity="0.08" stroke="#475569" stroke-width="1.2" stroke-dasharray="5,4"/>
-  <text x="50" y="410" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="600">App in modalità «Diretto»</text>
-  <text x="50" y="432" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Saltano i cavi virtuali e suonano</text>
-  <text x="50" y="450" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">subito sulla scheda audio (0 ms)</text>
+  <text x="50" y="410" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="15" font-weight="600">«Direct» / Bypass Apps</text>
+  <text x="50" y="432" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Bypass virtual cables completely</text>
+  <text x="50" y="450" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">and play straight to hardware (0 ms)</text>
 
   <!-- Col 2: Virtual cables -->
   <rect x="304" y="122" width="222" height="106" rx="12" fill="#1b2232" stroke="#ff7838" stroke-width="1.4"/>
   <text x="322" y="150" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">DualMix Game</text>
-  <text x="322" y="172" fill="#ffa040" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">VB-CABLE A · 5.1 / 7.1 · 48 kHz</text>
-  <text x="322" y="195" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Stessi canali e frequenza della</text>
-  <text x="322" y="213" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">scheda reale (dispositivo default)</text>
+  <text x="322" y="172" fill="#ffa040" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">VB-CABLE A · Matched Format</text>
+  <text x="322" y="195" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Mirrors channels and sample rate</text>
+  <text x="322" y="213" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">of your chosen playback device</text>
 
   <rect x="304" y="250" width="222" height="106" rx="12" fill="#1b2232" stroke="#40beff" stroke-width="1.4"/>
   <text x="322" y="278" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">DualMix Chat</text>
   <text x="322" y="300" fill="#40beff" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">VB-CABLE B · Stereo · 48 kHz</text>
-  <text x="322" y="323" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Dispositivo predefinito per le</text>
-  <text x="322" y="341" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">comunicazioni di Windows</text>
+  <text x="322" y="323" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Windows default communication</text>
+  <text x="322" y="341" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">output device</text>
 
   <!-- Col 3: DualMix Engine -->
   <rect x="576" y="122" width="258" height="234" rx="14" fill="#192030" stroke="#60a5fa" stroke-width="1.6"/>
@@ -65,29 +65,29 @@
 
   <rect x="594" y="188" width="222" height="44" rx="8" fill="#111622" stroke="#2d3952" stroke-width="1"/>
   <text x="705" y="207" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">1. WASAPI Loopback</text>
-  <text x="705" y="224" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Cattura 32-bit float pre-mixer</text>
+  <text x="705" y="224" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">32-bit float pre-mixer capture</text>
 
   <rect x="594" y="242" width="222" height="44" rx="8" fill="#111622" stroke="#2d3952" stroke-width="1"/>
-  <text x="705" y="261" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">2. Sinc Resampler (160 tap)</text>
-  <text x="705" y="278" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Compensa clock drift · SNR &gt; 130 dB</text>
+  <text x="705" y="261" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">2. Sinc Resampler (160-tap)</text>
+  <text x="705" y="278" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Clock drift compensation · SNR &gt; 130 dB</text>
 
   <rect x="594" y="296" width="222" height="44" rx="8" fill="#111622" stroke="#2d3952" stroke-width="1"/>
-  <text x="705" y="315" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">3. ChatMix + Gain Lineare</text>
-  <text x="705" y="332" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Bilanciamento, volumi canali e mute</text>
+  <text x="705" y="315" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="600" text-anchor="middle">3. ChatMix + Linear Gain</text>
+  <text x="705" y="332" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Live balance, channel gain, and mute</text>
 
   <!-- Col 4: Physical output -->
   <rect x="878" y="176" width="188" height="132" rx="14" fill="#4ade80" fill-opacity="0.09" stroke="#4ade80" stroke-width="1.6"/>
-  <text x="972" y="210" fill="#86efac" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">Scheda audio reale</text>
-  <text x="972" y="234" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" text-anchor="middle">Sound Blaster AE-5 /</text>
-  <text x="972" y="253" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" text-anchor="middle">Cuffie / Altoparlanti</text>
-  <text x="972" y="280" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Consegna 32-bit float</text>
-  <text x="972" y="296" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Latenza: Minima / Bil. / Sic.</text>
+  <text x="972" y="210" fill="#86efac" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">Any Output Device</text>
+  <text x="972" y="234" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" text-anchor="middle">USB DAC / Sound Card /</text>
+  <text x="972" y="253" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13" text-anchor="middle">Headphones / Speakers</text>
+  <text x="972" y="280" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">32-bit float playback</text>
+  <text x="972" y="296" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" text-anchor="middle">Latency: Min / Bal / Safe</text>
 
   <!-- Fallback note -->
   <rect x="576" y="382" width="490" height="82" rx="12" fill="#ffffff" fill-opacity="0.04" stroke="#334155" stroke-width="1"/>
-  <text x="596" y="408" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="700">Modalità fallback senza driver (Volume per app)</text>
-  <text x="596" y="430" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Se i cavi VB-CABLE non sono installati (o «Game diretto» è attivo per i soli giochi),</text>
-  <text x="596" y="449" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">DualMix scala in tempo reale i volumi delle singole sessioni nel mixer di Windows.</text>
+  <text x="596" y="408" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="700">Driverless Mode — Per-App Volume (Default / Zero Setup)</text>
+  <text x="596" y="430" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Works immediately on every Windows PC with no virtual cable drivers or admin rights:</text>
+  <text x="596" y="449" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">DualMix scales each app's Windows WASAPI session volume directly in real time.</text>
 
   <!-- Arrows -->
   <line x1="258" y1="175" x2="300" y2="175" stroke="#ff8a4c" stroke-width="2.2" marker-end="url(#arrowOrange)"/>
@@ -96,5 +96,4 @@
   <line x1="526" y1="303" x2="572" y2="265" stroke="#40beff" stroke-width="2.2" marker-end="url(#arrowBlue)"/>
   <line x1="834" y1="242" x2="874" y2="242" stroke="#4ade80" stroke-width="2.5" marker-end="url(#arrowGreen)"/>
   <path d="M 258 423 L 552 423 L 552 486 L 972 486 L 972 312" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-dasharray="5,4" marker-end="url(#arrowGray)"/>
-
 </svg>

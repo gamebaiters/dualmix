@@ -130,13 +130,16 @@ public static partial class Diagnostics
     private static void KnobTest()
     {
         var actions = new System.Collections.Generic.List<KnobAction>();
-        var s = new Settings();
+        var defaults = new Settings();
+        Check(defaults.KnobTarget == KnobTarget.Volume && defaults.KnobStartFunction == KnobStartFunction.Volume,
+              "default startup function is Master Volume");
+        var s = new Settings { KnobTarget = KnobTarget.Mix };
         var k = new KnobController(KnobConfig.From(s), a => actions.Add(a)); // no keyboard thread: the hook path handles everything
 
         bool Bound(int vk, HotkeyModifiers mods, KnobActionKind kind, KnobTarget? target = null) =>
             k.Bindings.Any(b => b.Vk == vk && b.Mods == mods && b.Action.Kind == kind && (target == null || b.Action.Target == target));
 
-        // function Mix (default)
+        // function Mix
         Check(k.HandleKey(KeyboardHook.VK_VOLUME_DOWN, true, false) && actions[^1] == new KnobAction(KnobActionKind.Rotate, -1, KnobTarget.Mix),
               "Mix: knob left -> Rotate(-1, Mix), key swallowed");
         Check(k.HandleKey(KeyboardHook.VK_VOLUME_DOWN, false, false), "matching key-up swallowed too");
@@ -255,8 +258,8 @@ public static partial class Diagnostics
             W($"   - {d.Name}{(d.IsDefault ? "  [default]" : "")}{(d.IsVbCable ? "  [VB-CABLE]" : "")}{(d.IsAe5 ? "  [AE-5]" : "")}  {fmt}  " +
               (probe == null ? "opens OK" : $"OPEN FAILS 0x{probe:X8}"));
         }
-        var ae5 = Devices.FindPreferredOutput(list);
-        W($"   preferred output: {ae5?.Name ?? "(AE-5 not found)"}");
+        var preferred = Devices.FindPreferredOutput(list);
+        W($"   preferred output: {preferred?.Name ?? "(none found)"}");
         var (game, chat) = Devices.FindCables(list, null, null);
         W($"   cables: game = {game?.Name ?? "-"}, chat = {chat?.Name ?? "-"}");
         W($"   default console: {Devices.NameOf(Devices.GetDefaultId(Role.Console))}");

@@ -29,6 +29,7 @@ public partial class AudioPage : Page
         {
             _c.EngineChanged += Load;
             _c.PropertyChanged += OnChanged;
+            Loc.LanguageChanged += OnLanguageChanged;
             Load();
             _timer.Start();
         };
@@ -36,9 +37,12 @@ public partial class AudioPage : Page
         {
             _c.EngineChanged -= Load;
             _c.PropertyChanged -= OnChanged;
+            Loc.LanguageChanged -= OnLanguageChanged;
             _timer.Stop();
         };
     }
+
+    private void OnLanguageChanged() => Dispatcher.BeginInvoke(Load);
 
     private void OnChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -57,10 +61,10 @@ public partial class AudioPage : Page
         var s = _c.Settings;
 
         var render = Devices.ListRender().Where(d => !d.IsVbCable).ToList();
-        var auto = Devices.FindPreferredOutput(render);
+        var auto = Devices.FindPreferredOutput(render, s.DefaultsBackup?.Multimedia ?? Devices.GetDefaultId(NAudio.CoreAudioApi.Role.Multimedia));
         var choices = new System.Collections.Generic.List<OutputChoice>
         {
-            new(null, auto != null ? $"Automatico ({auto.Name})" : "Automatico (Sound Blaster AE-5)"),
+            new(null, auto != null ? Loc.Format("Audio.AutoOption", auto.Name) : Loc.Get("Audio.AutoOptionEmpty")),
         };
         choices.AddRange(render.Select(d => new OutputChoice(d.Id, d.Name)));
         OutputCombo.ItemsSource = choices;
@@ -80,25 +84,24 @@ public partial class AudioPage : Page
         LSafe.IsChecked = s.Latency == LatencyMode.Sicura;
         NoDucking.IsChecked = WindowsDucking.IsDisabled;
 
-        string playback = _c.GameViaBus ? "«DualMix Game»" : "la scheda audio reale";
-        DefaultsText.Text = $"Riproduzione → {playback}, comunicazioni → «DualMix Chat». Chiudendo DualMix torna tutto com'era.";
+        string playback = _c.GameViaBus ? "\"DualMix Game\"" : Loc.Get("Audio.DefaultsRealCard");
+        DefaultsText.Text = Loc.Format("Audio.DefaultsCardText", playback);
 
         switch (_c.VirtualCables)
         {
             case 0:
-                DriverText.Text = "Non installato. DualMix scarica il driver VB-CABLE dal sito ufficiale (vb-audio.com) e ne verifica la firma.";
-                DriverButton.Content = "Installa";
+                DriverText.Text = Loc.Get("Audio.Driver0Desc");
+                DriverButton.Content = Loc.Get("Audio.DriverBtn.Install");
                 DriverButton.Appearance = ControlAppearance.Primary;
                 break;
             case 1:
-                DriverText.Text = $"Un cavo installato: «{Short(_c.ChatDeviceName)}». I giochi suonano direttamente sulla scheda audio. " +
-                                  "Per avere anche «DualMix Game» aggiungi il pacchetto VB-CABLE A+B (file .zip ricevuto da VB-Audio).";
-                DriverButton.Content = "Aggiungi A+B…";
+                DriverText.Text = Loc.Format("Audio.Driver1Desc", Short(_c.ChatDeviceName));
+                DriverButton.Content = Loc.Get("Audio.DriverBtn.Upgrade");
                 DriverButton.Appearance = ControlAppearance.Primary;
                 break;
             default:
-                DriverText.Text = $"Installato · {_c.GameDeviceName} · {_c.ChatDeviceName}";
-                DriverButton.Content = "Riconfigura";
+                DriverText.Text = Loc.Format("Audio.Driver2Desc", _c.GameDeviceName, _c.ChatDeviceName);
+                DriverButton.Content = Loc.Get("Audio.DriverBtn.Reconfigure");
                 DriverButton.Appearance = ControlAppearance.Secondary;
                 break;
         }
@@ -110,7 +113,7 @@ public partial class AudioPage : Page
     private void RefreshLive()
     {
         QualitySummary.Text = _c.RouterRunning
-            ? $"{_c.FormatText} · latenza aggiunta: {_c.LatencyText}"
+            ? Loc.Format("Audio.QualitySummaryFmt", _c.FormatText, _c.LatencyText)
             : _c.EngineText;
         Technical.Text = _c.TechnicalDetails;
     }
@@ -170,8 +173,8 @@ public partial class AudioPage : Page
             case 1:
                 var dlg = new OpenFileDialog
                 {
-                    Title = "Scegli il pacchetto VB-CABLE A+B",
-                    Filter = "Pacchetto VB-CABLE (*.zip)|*.zip",
+                    Title = Loc.Get("Audio.DriverDialog.Title"),
+                    Filter = Loc.Get("Audio.DriverDialog.Filter"),
                     CheckFileExists = true,
                 };
                 if (dlg.ShowDialog(Window.GetWindow(this)) != true) return;
@@ -197,15 +200,17 @@ public partial class AudioPage : Page
         if (result.Declined)
         {
             SetupInfo.Severity = InfoBarSeverity.Warning;
-            SetupInfo.Title = "Operazione annullata";
-            SetupInfo.Message = "Serve l'autorizzazione di amministratore (richiesta di Windows «Controllo account utente»).";
+            SetupInfo.Title = Loc.Get("Audio.SetupInfo.DeclinedTitle");
+            SetupInfo.Message = Loc.Get("Audio.SetupInfo.DeclinedBody");
         }
         else
         {
             SetupInfo.Severity = !result.Ok || result.PackRejected ? InfoBarSeverity.Error
                 : result.RebootRecommended ? InfoBarSeverity.Warning : InfoBarSeverity.Success;
-            SetupInfo.Title = !result.Ok || result.PackRejected ? "Non riuscito" : result.RebootRecommended ? "Riavvio necessario" : "Fatto";
-            SetupInfo.Message = string.IsNullOrWhiteSpace(result.Message) ? "Configurazione verificata: era già tutto a posto." : result.Message;
+            SetupInfo.Title = !result.Ok || result.PackRejected
+                ? Loc.Get("Audio.SetupInfo.FailedTitle")
+                : result.RebootRecommended ? Loc.Get("Audio.SetupInfo.RebootTitle") : Loc.Get("Audio.SetupInfo.DoneTitle");
+            SetupInfo.Message = string.IsNullOrWhiteSpace(result.Message) ? Loc.Get("Audio.SetupInfo.VerifiedBody") : result.Message;
         }
         SetupInfo.IsOpen = true;
     }

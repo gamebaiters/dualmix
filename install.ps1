@@ -16,6 +16,8 @@ $stage = Join-Path $root 'out\stage\app'
 $userDotnet = Join-Path $env:USERPROFILE '.dotnet'
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 $env:DOTNET_NOLOGO = '1'
+$isIt = [System.Globalization.CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName -eq 'it'
+function T([string]$en, [string]$it) { if ($isIt) { $it } else { $en } }
 
 # .NET 10 SDK (the system one, or a per-user one in %USERPROFILE%\.dotnet)
 $sdk = $null
@@ -25,7 +27,7 @@ foreach ($candidate in @((Get-Command dotnet -ErrorAction SilentlyContinue).Sour
     }
 }
 if (-not $sdk) {
-    Write-Host 'SDK .NET 10 non trovato: lo installo in %USERPROFILE%\.dotnet (solo per questo utente)...'
+    Write-Host (T '.NET 10 SDK not found: installing into %USERPROFILE%\.dotnet (current user only)...' 'SDK .NET 10 non trovato: lo installo in %USERPROFILE%\.dotnet (solo per questo utente)...')
     $script = Join-Path $env:TEMP 'dotnet-install.ps1'
     Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile $script -UseBasicParsing
     & $script -Channel 10.0 -InstallDir $userDotnet -NoPath
@@ -33,10 +35,10 @@ if (-not $sdk) {
 }
 
 # build + publish (ReadyToRun: precompiled, no JIT pauses when the audio engine starts)
-Write-Host 'Compilo...'
+Write-Host (T 'Building...' 'Compilo...')
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 & $sdk publish $project -c Release -r win-x64 --self-contained false -o $stage -p:DebugType=none -nologo -v q
-if ($LASTEXITCODE -ne 0) { throw "Compilazione fallita ($LASTEXITCODE)" }
+if ($LASTEXITCODE -ne 0) { throw (T "Build failed ($LASTEXITCODE)" "Compilazione fallita ($LASTEXITCODE)") }
 Copy-Item (Join-Path $root 'DualMix\Assets\dualmix.ico') (Join-Path $stage 'dualmix.ico') -Force
 
 & (Join-Path $root 'packaging\setup\setup.ps1') -Source $stage -NoStart:$NoStart

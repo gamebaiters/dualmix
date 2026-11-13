@@ -205,7 +205,7 @@ public sealed class KnobController
 
         if (match == null)
         {
-            if (knobKey) Note(vk, mods, "lasciato a Windows");
+            if (knobKey) Note(vk, mods, Loc.Get("Knob.Key.LeftToWin"));
             return false;
         }
 
@@ -214,7 +214,7 @@ public sealed class KnobController
 
         // Not registered (taken by another program, or no keyboard thread): handle it from the hook.
         System.Threading.Interlocked.Exchange(ref _lastHandled, Environment.TickCount64);
-        Note(vk, mods, "intercettato dall'hook");
+        Note(vk, mods, Loc.Get("Knob.Key.Hooked"));
         lock (_swallowedDown) _swallowedDown.Add(vk);
         _dispatch(match.Value.Action);
         return true;
@@ -224,9 +224,9 @@ public sealed class KnobController
     {
         string what = vk switch
         {
-            KeyboardHook.VK_VOLUME_UP => "Rotella → destra (Volume +)",
-            KeyboardHook.VK_VOLUME_DOWN => "Rotella ← sinistra (Volume −)",
-            KeyboardHook.VK_VOLUME_MUTE => "Rotella premuta (Muto)",
+            KeyboardHook.VK_VOLUME_UP => Loc.Get("Knob.Key.VolUp"),
+            KeyboardHook.VK_VOLUME_DOWN => Loc.Get("Knob.Key.VolDown"),
+            KeyboardHook.VK_VOLUME_MUTE => Loc.Get("Knob.Key.VolMute"),
             _ => KeyName(vk),
         };
         if (mods != HotkeyModifiers.None) what = ChordName(0, mods) + " + " + what;
@@ -263,40 +263,40 @@ public sealed class KnobController
         var sb = new StringBuilder();
         if (mods.HasFlag(HotkeyModifiers.Ctrl)) sb.Append("Ctrl + ");
         if (mods.HasFlag(HotkeyModifiers.Alt)) sb.Append("Alt + ");
-        if (mods.HasFlag(HotkeyModifiers.Shift)) sb.Append("Maiusc + ");
+        if (mods.HasFlag(HotkeyModifiers.Shift)) sb.Append(Loc.Get("Knob.Key.Shift") + " + ");
         if (mods.HasFlag(HotkeyModifiers.Win)) sb.Append("Win + ");
-        if (vk == 0) return sb.Length == 0 ? "Nessuna" : sb.ToString().TrimEnd(' ', '+');
+        if (vk == 0) return sb.Length == 0 ? Loc.Get("Knob.Key.NoneFem") : sb.ToString().TrimEnd(' ', '+');
         sb.Append(KeyName(vk));
         return sb.ToString();
     }
 
     public static string KeyName(int vk)
     {
-        if (vk == 0) return "Nessuno";
+        if (vk == 0) return Loc.Get("Knob.Key.None");
         if (vk >= 0x70 && vk <= 0x87) return "F" + (vk - 0x6F);
         if (vk >= 0x30 && vk <= 0x39) return ((char)vk).ToString();
         if (vk >= 0x41 && vk <= 0x5A) return ((char)vk).ToString();
-        if (vk >= 0x60 && vk <= 0x69) return "Tn " + (vk - 0x60);
+        if (vk >= 0x60 && vk <= 0x69) return Loc.Format("Knob.Key.Num", vk - 0x60);
         return vk switch
         {
             KeyboardHook.VK_VOLUME_UP => "Volume +",
             KeyboardHook.VK_VOLUME_DOWN => "Volume −",
-            KeyboardHook.VK_VOLUME_MUTE => "Muto (pressione rotella)",
-            0xB0 => "Traccia successiva",
-            0xB1 => "Traccia precedente",
+            KeyboardHook.VK_VOLUME_MUTE => Loc.Get("Knob.Key.PressMute"),
+            0xB0 => Loc.Get("Knob.Key.NextTrack"),
+            0xB1 => Loc.Get("Knob.Key.PrevTrack"),
             0xB2 => "Stop",
-            0xB3 => "Play/Pausa",
-            0x13 => "Pausa",
-            0x91 => "Bloc Scorr",
-            0x2C => "Stamp",
+            0xB3 => Loc.Get("Knob.Key.PlayPause"),
+            0x13 => Loc.Get("Knob.Key.Pause"),
+            0x91 => Loc.Get("Knob.Key.ScrollLock"),
+            0x2C => Loc.Get("Knob.Key.PrtSc"),
             0x2D => "Ins",
-            0x2E => "Canc",
+            0x2E => Loc.Get("Knob.Key.Del"),
             0x24 => "Home",
-            0x23 => "Fine",
-            0x21 => "Pag Su",
-            0x22 => "Pag Giù",
-            0x20 => "Spazio",
-            0x0D => "Invio",
+            0x23 => Loc.Get("Knob.Key.End"),
+            0x21 => Loc.Get("Knob.Key.PgUp"),
+            0x22 => Loc.Get("Knob.Key.PgDn"),
+            0x20 => Loc.Get("Knob.Key.Space"),
+            0x0D => Loc.Get("Knob.Key.Enter"),
             0x1B => "Esc",
             0x09 => "Tab",
             0x08 => "Backspace",

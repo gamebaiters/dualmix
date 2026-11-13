@@ -96,7 +96,7 @@ public sealed class Updater
         if (!await _gate.WaitAsync(0).ConfigureAwait(false)) return Available;
         try
         {
-            Set(UpdateState.Checking, "Controllo degli aggiornamenti…");
+            Set(UpdateState.Checking, Loc.Get("Updater.Checking"));
             var feed = Feed;
             var info = Parse(await ReadDocumentAsync(feed).ConfigureAwait(false), feed);
             _settings.UpdateNextCheck = DateTime.Now.AddDays(1);
@@ -105,12 +105,12 @@ public sealed class Updater
             {
                 Available = info;
                 Log.Info($"Update: version {info.Version} is available (running {Current})");
-                Set(UpdateState.Available, $"È disponibile DualMix {info.Version}.");
+                Set(UpdateState.Available, Loc.Format("Updater.AvailableLine", info.Version));
                 return info;
             }
             Available = null;
             Log.Info($"Update: up to date ({Current}, latest {info.Version})");
-            Set(UpdateState.UpToDate, $"DualMix è aggiornato (controllato alle {DateTime.Now:HH:mm}).");
+            Set(UpdateState.UpToDate, Loc.Format("Updater.UpToDateTime", DateTime.Now));
             return null;
         }
         catch (Exception ex)
@@ -118,7 +118,7 @@ public sealed class Updater
             Log.Warn("Update: check failed", ex);
             _settings.UpdateNextCheck = DateTime.Now.AddDays(1);
             _settingsChanged();
-            Set(UpdateState.Failed, "Controllo non riuscito: " + Describe(ex));
+            Set(UpdateState.Failed, Loc.Format("Updater.CheckFailedPrefix", Describe(ex)));
             return null;
         }
         finally
@@ -144,7 +144,7 @@ public sealed class Updater
         try
         {
             Progress = 0;
-            Set(UpdateState.Downloading, $"Scarico DualMix {info.Version}…");
+            Set(UpdateState.Downloading, Loc.Format("Updater.Downloading", info.Version));
             var work = Path.Combine(Path.GetTempPath(), "DualMix-update", info.Version.ToString());
             if (Directory.Exists(work)) Directory.Delete(work, true);
             Directory.CreateDirectory(work);
@@ -152,23 +152,23 @@ public sealed class Updater
             var zip = Path.Combine(work, "package.zip");
             var hash = await FetchPackageAsync(info.Location, zip).ConfigureAwait(false);
             if (!hash.Equals(info.Sha256.Trim(), StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException($"il pacchetto scaricato non corrisponde all'impronta dichiarata (SHA-256 {hash})");
+                throw new InvalidDataException(Loc.Format("Updater.InvalidPackage", hash));
 
             var pkg = Path.Combine(work, "pkg");
             ZipFile.ExtractToDirectory(zip, pkg, overwriteFiles: true);
             File.Delete(zip);
             var script = Path.Combine(pkg, "setup", "setup.ps1");
             if (!File.Exists(script) || !File.Exists(Path.Combine(pkg, "app", "DualMix.dll")))
-                throw new InvalidDataException("il pacchetto non contiene il setup di DualMix");
+                throw new InvalidDataException(Loc.Get("Updater.MissingSetup"));
 
-            Set(UpdateState.Installing, $"Installo DualMix {info.Version}: DualMix si riavvia tra un momento…");
+            Set(UpdateState.Installing, Loc.Format("Updater.StartingInstall", info.Version));
             Log.Info($"Update: starting the setup of {info.Version} ({script})");
             StartSetup(script);
         }
         catch (Exception ex)
         {
             Log.Error("Update: installation failed", ex);
-            Set(UpdateState.Failed, "Aggiornamento non riuscito: " + Describe(ex));
+            Set(UpdateState.Failed, Loc.Format("Updater.UpdateFailedPrefix", Describe(ex)));
             return false;
         }
         finally
@@ -181,7 +181,7 @@ public sealed class Updater
         {
             if (State != UpdateState.Installing) return;
             Log.Warn("Update: the setup did not replace DualMix (see setup.log)");
-            Set(UpdateState.Failed, "Il setup non ha completato l'aggiornamento: guarda setup.log nella cartella di impostazioni e log.");
+            Set(UpdateState.Failed, Loc.Get("Updater.SetupStalled"));
         }, TaskScheduler.Default);
         return true;
     }
@@ -199,14 +199,14 @@ public sealed class Updater
 
     private static UpdateInfo Parse(string json, string feed)
     {
-        var doc = JsonSerializer.Deserialize<Document>(json, Json) ?? throw new InvalidDataException("documento di versione vuoto");
+        var doc = JsonSerializer.Deserialize<Document>(json, Json) ?? throw new InvalidDataException(Loc.Get("Updater.EmptyDoc"));
         if (!string.Equals(doc.Product, "DualMix", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("il documento di versione non è di DualMix");
-        if (!Version.TryParse(doc.Version, out var version)) throw new InvalidDataException($"versione non valida: «{doc.Version}»");
-        if (string.IsNullOrWhiteSpace(doc.Url)) throw new InvalidDataException("manca l'indirizzo del pacchetto");
+            throw new InvalidDataException(Loc.Get("Updater.WrongDoc"));
+        if (!Version.TryParse(doc.Version, out var version)) throw new InvalidDataException(Loc.Format("Updater.InvalidVer", doc.Version));
+        if (string.IsNullOrWhiteSpace(doc.Url)) throw new InvalidDataException(Loc.Get("Updater.MissingUrl"));
         var sha = doc.Sha256?.Trim() ?? "";
         if (sha.Length != 64 || !Uri.IsHexDigit(sha[0]) || sha.AsSpan().IndexOfAnyExcept("0123456789abcdefABCDEF") >= 0)
-            throw new InvalidDataException("manca l'impronta SHA-256 del pacchetto");
+            throw new InvalidDataException(Loc.Get("Updater.MissingSha"));
         return new UpdateInfo(Normalize(version), Resolve(doc.Url.Trim(), feed), sha, string.IsNullOrWhiteSpace(doc.Notes) ? null : doc.Notes.Trim());
     }
 
@@ -269,7 +269,7 @@ public sealed class Updater
 
         try
         {
-            if (length > MaxPackageBytes) throw new InvalidDataException("pacchetto troppo grande");
+            if (length > MaxPackageBytes) throw new InvalidDataException(Loc.Get("Updater.TooLarge"));
             using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             await using var output = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true);
             var buffer = new byte[1 << 16];
@@ -279,7 +279,7 @@ public sealed class Updater
             while ((read = await source.ReadAsync(buffer, cts.Token).ConfigureAwait(false)) > 0)
             {
                 total += read;
-                if (total > MaxPackageBytes) throw new InvalidDataException("pacchetto troppo grande");
+                if (total > MaxPackageBytes) throw new InvalidDataException(Loc.Get("Updater.TooLarge"));
                 sha.AppendData(buffer, 0, read);
                 await output.WriteAsync(buffer.AsMemory(0, read), cts.Token).ConfigureAwait(false);
                 if (length > 0 && Environment.TickCount64 >= nextReport)
@@ -315,7 +315,7 @@ public sealed class Updater
         psi.UseShellExecute = false;
         psi.CreateNoWindow = true;
         psi.WorkingDirectory = Path.GetTempPath();
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException("impossibile avviare il setup");
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException(Loc.Get("Updater.CantLaunchSetup"));
     }
 
     // ------------------------------------------------------------------ helpers
@@ -331,10 +331,10 @@ public sealed class Updater
 
     private static string Describe(Exception ex) => ex switch
     {
-        HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound } => "nessuna versione pubblicata a questo indirizzo.",
-        HttpRequestException => "nessuna risposta dal server (" + ex.Message + ").",
-        OperationCanceledException => "il server non ha risposto in tempo.",
-        FileNotFoundException or DirectoryNotFoundException => "documento di versione non trovato.",
+        HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound } => Loc.Get("Updater.Err404"),
+        HttpRequestException => Loc.Format("Updater.ErrHttp", ex.Message),
+        OperationCanceledException => Loc.Get("Updater.ErrTimeout"),
+        FileNotFoundException or DirectoryNotFoundException => Loc.Get("Updater.ErrNotFound"),
         _ => ex.Message,
     };
 

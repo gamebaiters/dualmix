@@ -1,212 +1,228 @@
 <p align="center">
-  <img src="docs/images/banner.svg" alt="DualMix — Mixer Game/Chat per Windows 11" width="100%">
+  <img src="docs/images/banner.svg" alt="DualMix — Universal Game/Chat Audio Mixer for Windows" width="100%">
 </p>
 
 <p align="center">
   <a href="https://github.com/gamebaiters/dualmix/releases"><img src="https://img.shields.io/github/v/release/gamebaiters/dualmix?style=flat-square&color=40beff&label=Release" alt="Release"></a>
   <a href="https://github.com/gamebaiters/dualmix/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/gamebaiters/dualmix/build.yml?branch=main&style=flat-square&label=Build" alt="Build"></a>
-  <img src="https://img.shields.io/badge/Windows-11%20x64-0078d4?style=flat-square" alt="Windows 11 x64">
+  <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078d4?style=flat-square" alt="Windows 10/11 x64">
   <img src="https://img.shields.io/badge/.NET-10.0%20WPF-512bd4?style=flat-square" alt=".NET 10 WPF">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-4ade80?style=flat-square" alt="MIT License"></a>
 </p>
 
-**DualMix** è un mixer audio Game/Chat per **Windows 11** ispirato al *ChatMix* di SteelSeries Sonar / GameDAC.
-Separa automaticamente l'audio dei giochi, browser e musica (**Game**) da quello di Discord, TeamSpeak e chiamate (**Chat**), permettendoti di bilanciarli al volo con la **rotella della tastiera** o con scorciatoie globali, senza mai uscire dal gioco.
+**DualMix** is a universal **Game / Chat audio mixer** for **Windows 10 / 11** inspired by SteelSeries Sonar / GameDAC *ChatMix*.
+It works out of the box on **any PC and any playback device** (USB DACs, headsets, Realtek onboard audio, Bluetooth headphones, or dedicated sound cards), automatically separates games/media (**Game**) from Discord, TeamSpeak, and voice calls (**Chat**), and lets you balance them on the fly using your **keyboard volume knob** or global hotkeys—without ever alt-tabbing out of your game.
+
+- **Works immediately with zero drivers** in **Per-App Volume** mode, or upgrades seamlessly to **Virtual Devices (VB-CABLE A+B)** with a 32-bit float WASAPI engine and 160-tap sinc resampler.
+- **Guided 3-step Setup Wizard** on first launch picks your output device, mixing mode, and knob behavior in under a minute.
+- **English by default**, automatically switching to **Italian** when the Windows UI language is Italian (plus an instant switcher inside the app).
 
 ---
 
-## Come funziona
+## Quick Start & Guided Setup
 
-DualMix indirizza le applicazioni su due uscite virtuali (**DualMix Game** e **DualMix Chat**), cattura entrambi i flussi in virgola mobile a 32 bit tramite **WASAPI Loopback**, compensa la deriva di clock tra i dispositivi con un **ricampionatore sinc a 160 punti** (SNR > 130 dB, bit-exact a 100%) e li mixa verso la tua scheda audio reale. Se i cavi virtuali non sono installati, passa automaticamente alla modalità **Volume per app** sul mixer di Windows.
+Download the latest release from [**Releases**](https://github.com/gamebaiters/dualmix/releases/latest):
+
+1. **Graphical Installer (`DualMix-Setup-<v>.exe`)** — double-click and install. No administrator rights required.
+2. **Portable ZIP Package (`DualMix-<v>-win-x64.zip`)** — extract and run **`Install DualMix.cmd`** (useful if Windows SmartScreen or antivirus flags the unsigned `.exe`; runs the exact same setup script).
+
+What the installer (`packaging/setup/setup.ps1`) does:
+- Automatically downloads and installs the **.NET 10 Desktop Runtime** (per-user in `%USERPROFILE%\.dotnet`) if missing on your PC.
+- Cleanly shuts down any running DualMix instance and upgrades older manual installations while **keeping your settings and virtual cables intact**.
+- Installs to `%LOCALAPPDATA%\Programs\DualMix`, adds a Start menu shortcut and a standard **Installed apps** entry, then launches DualMix.
+- Logs every setup step in `%APPDATA%\DualMix\setup.log`.
+
+| Utility | Purpose |
+|---|---|
+| **`Remove-old-DualMix.zip`** → `Remove old DualMix.cmd` | Standalone cleanup script for legacy manual installs (up to v2.1.0), keeping settings and virtual cables intact. |
+| **`Uninstall DualMix.cmd`** (or *Settings → Apps → DualMix*) | Full uninstall. Supports `-RemoveDrivers` (also uninstalls virtual cables) and `-Purge` (deletes settings and logs). |
+
+### First-Launch Setup Wizard
+
+On first launch, DualMix opens a guided 3-step Setup Wizard (also re-openable anytime from **General → Initial setup wizard**):
+
+1. **Language & Welcome** — Defaults to English (or Italian automatically when Windows UI is Italian), with an instant live preview switch.
+2. **Playback Output & Mixing Mode** — Auto-detects your active Windows speakers/headphones/DAC and lets you choose between:
+   - **Per-App Volume (No Drivers)** — Starts immediately without admin rights or audio drivers by scaling each app's WASAPI session volume.
+   - **Virtual Devices (VB-CABLE A+B)** — Uses two dedicated virtual outputs (*DualMix Game* & *DualMix Chat*) mixed through DualMix's 32-bit float loopback engine (includes one-click verified driver install).
+3. **Knob Rules & Windows Integration** — Sets startup knob behavior, optional autostart with Windows, and disables Windows automatic 80% call ducking.
 
 <p align="center">
-  <img src="docs/images/architecture.svg" alt="Architettura audio di DualMix" width="100%">
+  <img src="docs/images/screenshots/wizard-step1.png" alt="DualMix Setup Wizard — Welcome and Language" width="49%">
+  <img src="docs/images/screenshots/wizard-step2.png" alt="DualMix Setup Wizard — Output Device and Mixing Mode" width="49%">
 </p>
 
 ---
 
-## Installazione
+## Audio Architecture
 
-Scarica l'ultima versione dalla pagina [**Releases**](https://github.com/gamebaiters/dualmix/releases/latest):
+In **Virtual Devices** mode, DualMix routes applications onto two virtual playback endpoints (**DualMix Game** and **DualMix Chat**), captures both streams in 32-bit float via **WASAPI Loopback**, compensates clock drift between devices using a **160-tap Kaiser-windowed sinc resampler** (SNR > 130 dB, bit-exact at 1:1 ratio), and mixes them into your chosen physical output device. On any PC without virtual cables—or whenever you prefer zero extra drivers—DualMix runs cleanly in **Per-App Volume** mode via Windows WASAPI session controls.
 
-1. **Installer grafico (`DualMix-Setup-<v>.exe`)** — doppio clic e via. Non richiede diritti di amministratore.
-2. **Pacchetto portatile ZIP (`DualMix-<v>-win-x64.zip`)** — estrai la cartella ed esegui **`Installa DualMix.cmd`** (utile se Windows SmartScreen o l'antivirus trattengono l'`.exe` non firmato; esegue esattamente gli stessi passaggi).
-
-Cosa fa il setup (`packaging/setup/setup.ps1`):
-- Scarica e installa automaticamente il runtime **.NET 10 Desktop** (solo per l'utente corrente) se manca sul PC.
-- Chiude in modo pulito un'eventuale istanza già attiva e rimuove vecchie installazioni manuali precedenti alla v2.2.0, **conservando impostazioni e driver virtuali**.
-- Installa in `%LOCALAPPDATA%\Programs\DualMix`, crea il collegamento nel menu Start e la voce in **App installate** di Windows, poi avvia DualMix nell'area di notifica.
-- Registra ogni passaggio in `%APPDATA%\DualMix\setup.log`.
-
-| Utilità | Scopo |
-|---|---|
-| **`Rimuovi-vecchio-DualMix.zip`** → `Rimuovi vecchio DualMix.cmd` | Rimuove soltanto una vecchia installazione manuale di DualMix (fino alla 2.1.0), lasciando impostazioni e cavi intatti. |
-| **`Disinstalla DualMix.cmd`** (o *Impostazioni → App → DualMix*) | Disinstallazione completa. Supporta `-RemoveDrivers` (toglie anche i cavi virtuali) e `-Purge` (cancella anche impostazioni e log). |
+<p align="center">
+  <img src="docs/images/architecture.svg" alt="DualMix Audio Architecture" width="100%">
+</p>
 
 ---
 
-## L'interfaccia
+## Interface Overview
 
 ### 1. Mixer
-Il cuore dell'app: cursore **ChatMix** con preset rapidi (*Tutto Game*, *Bilanciato*, *Tutto Chat*), volumi e indicatori live (meter) separati per **Game** e **Chat**, controllo diretto della scheda audio reale e chip di stato del motore audio.
+Live **Game / Chat Mix** slider with one-click presets (*All Game*, *Balanced*, *All Chat*), independent **Game** and **Chat** channel meters and faders, direct master volume control for your physical output device, and engine status chips.
 
 <p align="center">
-  <img src="docs/images/screenshots/mixer.png" alt="Schermata Mixer di DualMix" width="88%">
+  <img src="docs/images/screenshots/mixer.png" alt="DualMix Mixer Page" width="88%">
 </p>
 
-### 2. App — Assegnazione automatica dei canali
-Le app compaiono appena riproducono audio:
-- **Chat vocali** (`Discord`, `TeamSpeak`, `Mumble`…) vengono riconosciute e assegnate automaticamente a **Chat**.
-- Tutto il resto (giochi, browser, player musicali) va in **Game**.
-- Puoi spostare qualsiasi app in **Game**, **Chat** o **Diretto** (bypassa i cavi virtuali e suona dritto sulla scheda audio a latenza zero), cercare nella lista, mostrare app non attive o pre-configurare un eseguibile prima ancora che suoni.
+### 2. Apps — Automatic Channel Assignment
+Applications appear automatically as soon as they produce sound:
+- **Voice Chat apps** (`Discord`, `TeamSpeak`, `Mumble`, etc.) are automatically recognized and assigned to **Chat**.
+- Everything else (games, browsers, media players) defaults to **Game**.
+- Switch any app between **Game**, **Chat**, or **Direct** (bypasses virtual routing completely with 0 ms added latency), filter the list, toggle inactive apps, or pre-configure executables before launching them.
 
 <p align="center">
-  <img src="docs/images/screenshots/apps.png" alt="Schermata App di DualMix" width="88%">
+  <img src="docs/images/screenshots/apps.png" alt="DualMix Apps Routing Page" width="88%">
 </p>
 
 ---
 
-## Rotella della tastiera, Scorciatoie e OSD
+## Keyboard Knob, Hotkeys & On-Screen Display (OSD)
 
-DualMix intercetta i tasti multimediali della tastiera (`Volume +`, `Volume −`, `Muto`, es. manopola del NuPhy Kick75 o di qualsiasi tastiera) tramite `RegisterHotKey` + hook a basso livello, e corregge eventuali cambi di volume sfuggiti a Windows anche con giochi a schermo intero.
+DualMix intercepts media keys (`Volume Up`, `Volume Down`, `Mute`, e.g., rotary knobs on keyboards like NuPhy Kick75 or any media keyboard) via `RegisterHotKey` + low-level keyboard hook, reverting any OS volume drift even inside fullscreen games.
 
 <p align="center">
-  <img src="docs/images/knob-guide.svg" alt="Guida alle funzioni della rotella e alle scorciatoie" width="100%">
+  <img src="docs/images/knob-guide.svg" alt="DualMix Keyboard Knob & Hotkey Guide" width="100%">
 </p>
 
-| Funzione | Rotazione | Pressione singola |
+| Function | Rotate | Single Press |
 |---|---|---|
-| **Volume generale** *(predefinita a ogni avvio)* | Regola il volume reale di Windows sulla scheda audio | Muto / Riattiva uscita |
-| **Mix Game/Chat** | Sinistra → più Game · Destra → più Chat *(si ferma al centro su Bilanciato)* | **Muto di tutto** *(opzione: torna a Bilanciato)* |
-| **Volume Game** | Regola solo il livello del canale Game | Muto / Riattiva Game |
-| **Volume Chat** | Regola solo il livello del canale Chat | Muto / Riattiva Chat |
+| **Master Volume** *(default at PC startup)* | Adjusts real Windows volume on your output device | Mute / Unmute output |
+| **Game / Chat Mix** | Left → louder Game · Right → louder Chat *(center detent at Balanced)* | **Mute everything** *(optional setting: snap to Balanced)* |
+| **Game Volume** | Adjusts Game channel level only | Mute / Unmute Game |
+| **Chat Volume** | Adjusts Chat channel level only | Mute / Unmute Chat |
 
-- **Cambio funzione al volo**: doppia pressione della rotella, **Ctrl + pressione**, oppure scorciatoia da tastiera (`Ctrl + Alt + M`, con ripiego automatico su `K`, `R`, `F12` se già occupata).
-- **Ctrl + gira**: controlla temporaneamente l'altra funzione principale (*Mix* ↔ *Volume generale*).
-- **Tasti dedicati (VIA / QMK)**: puoi associare `F13`, `F14`, `F15` a *più Game*, *più Chat* e *Bilanciato* per averli sempre pronti.
-- **Funzione all'avvio**: per impostazione predefinita a ogni accensione del PC la rotella riparte da **Volume generale** (puoi cambiare in *Rotella e tasti → Comportamento → Funzione all'avvio*).
+- **Cycle function on the fly**: double-press the knob, **Ctrl + Press**, or global hotkey (`Ctrl + Alt + M`, falling back automatically to `K`, `R`, or `F12` if occupied).
+- **Ctrl + Rotate**: temporarily controls the alternate primary function (*Mix* ↔ *Master Volume*).
+- **Dedicated QMK / VIA keys**: bind `F13`, `F14`, `F15` directly to *More Game*, *More Chat*, and *Balanced*.
+- **Startup default**: resets cleanly to **Master Volume** at every Windows sign-in (customizable under *Knob & Keys → Behavior → Function at startup*).
 
 <p align="center">
-  <img src="docs/images/screenshots/knob.png" alt="Rotella e tasti — scelta funzione e cambio rapido" width="49%">
-  <img src="docs/images/screenshots/knob-behavior.png" alt="Rotella e tasti — comportamento, tasti VIA e prova live" width="49%">
+  <img src="docs/images/screenshots/knob.png" alt="DualMix Knob and Hotkeys Page" width="49%">
+  <img src="docs/images/screenshots/knob-behavior.png" alt="DualMix Knob Behavior and Live Test" width="49%">
 </p>
 
-### Indicatore a schermo (OSD)
-Quando giri o premi la rotella compare un piccolo riquadro in stile Windows 11 sul monitor del gioco attivo:
-- **`WS_EX_NOACTIVATE` + `WS_EX_TRANSPARENT`**: non ruba mai il focus e ignora i clic del mouse.
-- **Chiusura pulita**: a fine dissolvenza la finestra viene nascosta davvero (con timer di sicurezza e reazione ai cambi di schermo) per evitare artefatti o sfondi residui sopra i giochi.
+### Windows 11-style On-Screen Display (OSD)
+Turning or pressing the knob pops up a lightweight floating indicator on your active monitor:
+- **`WS_EX_NOACTIVATE` + `WS_EX_TRANSPARENT`**: never steals focus from fullscreen games and lets mouse clicks pass straight through.
+- **Clean teardown**: hides the window completely at the end of fade-out (with safety timers and display-change handling) so no gray artifact rectangle ever stays behind.
 
 <p align="center">
-  <img src="docs/images/osd-preview.svg" alt="Anteprima indicatore a schermo OSD di DualMix" width="92%">
-</p>
-
----
-
-## Audio, Cavi virtuali e Qualità
-
-- **Scheda audio reale**: scelta automatica o manuale dell'uscita fisica (mai un cavo virtuale, per evitare loop).
-- **Driver VB-Audio**: usa **VB-CABLE A+B** (`DualMix Game` in 5.1/7.1 a 48 kHz 24-bit e `DualMix Chat` in stereo), oppure installa/ripara il driver verificandone la firma digitale.
-- **Latenza**: *Minima* (gaming competitivo), *Bilanciata* (predefinita), *Sicura* (sistemi sotto carico); opzione **Game diretto** per azzerare la latenza dei soli giochi mantenendo comunque il bilanciamento per sessione.
-- **Zero attenuazione chiamate**: disattiva l'abbassamento automatico dell'80% applicato da Windows durante le chiamate VoIP.
-- **Ripara audio**: riavvia in sicurezza i servizi audio di Windows in caso di blocco della scheda audio.
-
-<p align="center">
-  <img src="docs/images/screenshots/audio.png" alt="Audio e dispositivi — uscita reale e driver" width="49%">
-  <img src="docs/images/screenshots/audio-signal.png" alt="Audio e dispositivi — latenza, percorso del segnale e diagnostica" width="49%">
+  <img src="docs/images/osd-preview.svg" alt="DualMix On-Screen Display Preview" width="92%">
 </p>
 
 ---
 
-## Avvio, Diagnostica e Aggiornamenti Automatici
+## Audio Devices, Latency & General Settings
 
-DualMix gira senza finestre né console visibili dentro l'host `.NET` (`conhost.exe --headless dotnet.exe DualMix.dll --supervise --tray`), con un supervisore che lo riavvia automaticamente in caso di arresto anomalo.
-
-<p align="center">
-  <img src="docs/images/screenshots/general.png" alt="Generale — avvio, OSD e tema" width="49%">
-  <img src="docs/images/screenshots/general-updates.png" alt="Generale — aggiornamenti automatici e diagnostica" width="49%">
-</p>
-
-### Come funzionano gli aggiornamenti e l'Auto-Builder
-
-Il sistema di aggiornamento segue lo schema di **RP Soundboard**: un piccolo documento `version.json` sul branch `main` indica l'ultima versione, l'URL HTTPS dello ZIP di rilascio e l'impronta **SHA-256**.
+- **Universal Playback Selection**: choose **Automatic** (follows your active Windows speakers/headphones/DAC) or pin a specific physical output device. DualMix filters out virtual cables automatically to prevent feedback loops.
+- **VB-CABLE A+B Setup**: optional one-click install/repair with digital signature verification, automatic sample rate & channel layout matching (`DualMix Game` + `DualMix Chat`), **Direct Games** toggle, and latency profiles (*Minimum*, *Balanced*, *Safe*).
+- **Language Switcher**: automatic English/Italian detection (`System (auto)`) plus manual **English** / **Italiano** override under *General → Language*.
+- **Call Ducking Protection**: disables Windows' automatic 80% volume reduction during VoIP calls.
 
 <p align="center">
-  <img src="docs/images/updater-pipeline.svg" alt="Pipeline Auto-Builder GitHub Actions e Auto-Updater" width="100%">
+  <img src="docs/images/screenshots/audio.png" alt="DualMix Audio and Devices Page" width="49%">
+  <img src="docs/images/screenshots/audio-signal.png" alt="DualMix Latency and Signal Diagnostics" width="49%">
 </p>
 
-- **Controllo**: 1 minuto dopo l'avvio e poi una volta ogni 24 ore (o subito con *Controlla ora*).
-- **Modalità**:
-  - **Automatici** *(predefinito)*: se trova una nuova versione all'avvio la scarica, verifica lo **SHA-256**, esegue `setup.ps1 -Update` in background e riavvia DualMix. Se la trova più tardi (a partita in corso) mostra solo una notifica e aspetta il prossimo avvio.
-  - **Avvisa**: notifica la disponibilità senza installare da solo.
-  - **Mai**: disabilita il controllo.
-- **Feed personalizzabile**: puoi cambiare `UpdateFeed` in `%APPDATA%\DualMix\settings.json` puntando a un altro URL `https://` o a una cartella locale/condivisa contenente `version.json` e lo ZIP.
+<p align="center">
+  <img src="docs/images/screenshots/general.png" alt="DualMix General Settings and Language" width="49%">
+  <img src="docs/images/screenshots/general-updates.png" alt="DualMix Auto-Update Settings" width="49%">
+</p>
 
 ---
 
-## Sviluppo, Compilazione e Rilasci
+## Auto-Builder & Automatic Updates
 
-### Struttura del repository
+DualMix ships with both a **GitHub Actions CI/Release pipeline** and a built-in **SHA-256 Auto-Updater** inspired by *RP Soundboard*: a lightweight `version.json` manifest on `main` advertises the latest release version, HTTPS package URL, and **SHA-256** digest.
+
+<p align="center">
+  <img src="docs/images/updater-pipeline.svg" alt="DualMix GitHub Auto-Builder and Auto-Updater Pipeline" width="100%">
+</p>
+
+- **Update Checks**: 1 minute after launch and every 24 hours (or immediately via *Check now*).
+- **Update Modes**:
+  - **Automatic** *(default)*: downloads and verifies **SHA-256** on startup, runs `setup.ps1 -Update` in the background, and relaunches DualMix cleanly; if detected mid-session (while gaming), notifies first and waits for the next launch.
+  - **Notify only**: informs you when a new version is available without auto-installing.
+  - **Never**: disables background checks.
+- **Custom Update Feed**: override `UpdateFeed` in `%APPDATA%\DualMix\settings.json` to point to a custom `https://` feed or a shared local/Nextcloud folder containing `version.json` and the ZIP package.
+
+---
+
+## Building from Source & Releasing
+
+### Repository Structure
 
 ```text
 DualMix/
-├── DualMix/                     Sorgente .NET 10 WPF (win-x64, ReadyToRun)
+├── DualMix/                     .NET 10 WPF source (win-x64, ReadyToRun)
 │   ├── Audio/                   AudioRouter (WASAPI), SincResampler, SessionEngine, Devices, DriverSetup
-│   ├── Core/                    Controller, Settings, Updater, SystemIntegration, ProcessTuning
+│   ├── Core/                    Controller, Settings, Loc (EN/IT), Updater, SystemIntegration
 │   ├── Input/                   KeyboardHook (RegisterHotKey + WH_KEYBOARD_LL), KnobController
-│   ├── UI/                      MainWindow, OsdWindow, TrayIcon, Pages (Mixer, Apps, Knob, Audio, General)
-│   └── Assets/                  dualmix.ico (multi-risoluzione 16..256 px)
+│   ├── UI/                      MainWindow, SetupWindow, OsdWindow, TrayIcon, Pages
+│   └── Assets/                  dualmix.ico (multi-resolution 16..256 px)
 ├── packaging/
-│   ├── setup/                   setup.ps1, uninstall.ps1, rimuovi-vecchio.ps1
-│   ├── installer.nsi            Script NSIS per DualMix-Setup-<v>.exe
-│   ├── *.cmd / LEGGIMI.txt      Launcher utente senza .exe
+│   ├── setup/                   setup.ps1, uninstall.ps1, rimuovi-vecchio.ps1 (auto EN/IT)
+│   ├── installer.nsi            NSIS installer script (English + Italian language tables)
+│   └── *.cmd / README.txt       Portable user launchers & docs
 ├── tools/
-│   ├── build-release.sh         Build completo su Linux/CI: publish + ZIP + NSIS + version.json + SHA256SUMS
-│   ├── make_icon.py             Generatore dell'icona multi-size (Pillow)
-│   └── rilascia.sh              Script di rilascio verso cartella condivisa
+│   ├── build-release.sh         Linux/CI release builder (publish + ZIP + NSIS + version.json + SHA256SUMS)
+│   ├── make_icon.py             Multi-size icon generator (Pillow)
+│   └── rilascia.sh              Optional local share deployment script
 ├── .github/workflows/
-│   ├── build.yml                CI automatica su push/PR (verifica codice, script PowerShell, NSIS, ZIP)
-│   └── release.yml              Auto-builder al push di un tag vX.Y.Z → GitHub Release + commit version.json
-├── docs/images/                 Diagrammi, banner e screenshot dell'app
-├── install.ps1                  Compila da sorgente su Windows e installa col setup ufficiale
-└── LICENSE                      Licenza MIT
+│   ├── build.yml                CI on push/PR (C# build, PowerShell parser check, NSIS & ZIP packaging)
+│   └── release.yml              Auto-builder on vX.Y.Z tag push -> GitHub Release + version.json commit
+├── docs/images/                 Architecture diagrams, banner, and screenshots
+├── install.ps1                  Build from source on Windows & install via setup.ps1
+└── LICENSE                      MIT License
 ```
 
-### Compilare da sorgente
+### Build from Source
 
-- **Su Windows** (richiede [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)):
+- **On Windows** (requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), auto-bootstrapped if missing):
   ```powershell
-  # Compila e installa direttamente in %LOCALAPPDATA%\Programs\DualMix
+  # Build Release and install to %LOCALAPPDATA%\Programs\DualMix
   powershell -ExecutionPolicy Bypass -File install.ps1
 
-  # Oppure solo build Release
+  # Or build only
   dotnet build DualMix/DualMix.csproj -c Release
   ```
-- **Su Linux / CI** (cross-compilazione WPF grazie a `EnableWindowsTargeting`; richiede .NET 10 SDK, `zip`, `nsis`):
+- **On Linux / CI** (cross-compiles WPF via `EnableWindowsTargeting`; requires .NET 10 SDK, `zip`, `nsis`):
   ```bash
-  tools/build-release.sh --notes "Note della versione"
-  # Output in out/release/: DualMix-<v>-win-x64.zip, DualMix-Setup-<v>.exe, Rimuovi-vecchio-DualMix.zip, version.json, SHA256SUMS.txt
+  tools/build-release.sh --notes "Release notes summary"
+  # Output in out/release/: DualMix-<v>-win-x64.zip, DualMix-Setup-<v>.exe, Remove-old-DualMix.zip, version.json, SHA256SUMS.txt
   ```
 
-### Pubblicare una nuova versione (Auto-Builder)
+### Publishing a New Release (Auto-Builder)
 
-1. Aggiorna `<Version>X.Y.Z</Version>` in `DualMix/DualMix.csproj` e fai commit su `main`.
-2. Crea e invia il tag corrispondente:
+1. Bump `<Version>X.Y.Z</Version>` in `DualMix/DualMix.csproj` and commit to `main`.
+2. Create and push an annotated version tag:
    ```bash
-   git tag -a vX.Y.Z -m "Descrizione delle novità"
+   git tag -a vX.Y.Z -m "Short summary of what changed"
    git push origin main --tags
    ```
-3. Il workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) compila automaticamente i pacchetti, crea la **GitHub Release** `vX.Y.Z` con tutti gli asset e aggiorna `version.json` su `main` per tutti i DualMix installati.
+3. [`.github/workflows/release.yml`](.github/workflows/release.yml) automatically builds all artifacts, publishes the **GitHub Release** `vX.Y.Z`, and commits the updated `version.json` to `main` so existing installations pick up the update automatically.
 
-### Strumenti da riga di comando integrati
+### Built-in CLI Tools
 
-- `dotnet DualMix.dll --diag [--quick] [--stress]` → esegue la diagnostica completa (dispositivi, driver, rotella, test audio con toni di prova e misura SNR) e salva il report in `%APPDATA%\DualMix\diag.txt`.
-- `dotnet DualMix.dll --snapshot <cartella>` → genera gli screenshot PNG di tutte le pagine dell'interfaccia senza toccare i dispositivi audio.
-- Log dell'applicazione: `%APPDATA%\DualMix\dualmix.log`.
+- `dotnet DualMix.dll --diag [--quick] [--stress]` — runs audio/math/hook diagnostics and writes `%APPDATA%\DualMix\diag.txt`.
+- `dotnet DualMix.dll --wizard` — launches the 3-step Setup Wizard directly.
+- `dotnet DualMix.dll --lang en|it` — overrides UI language for testing (`auto`, `en`, `it`).
+- `dotnet DualMix.dll --snapshot <folder>` — captures PNG screenshots of the Setup Wizard and all UI pages cleanly without touching audio devices.
+- Application logs: `%APPDATA%\DualMix\dualmix.log`.
 
 ---
 
-## Licenza e Crediti
+## License & Credits
 
-- Distribuito sotto licenza [**MIT**](LICENSE).
-- I dispositivi audio virtuali utilizzano [**VB-CABLE**](https://vb-audio.com/Cable/) di VB-Audio Software (donationware).
-- Interfaccia realizzata con [WPF-UI](https://github.com/lepoco/wpfui) e acquisizione audio tramite [NAudio](https://github.com/naudio/NAudio).
+- Released under the [**MIT License**](LICENSE).
+- Optional virtual audio routing uses [**VB-CABLE**](https://vb-audio.com/Cable/) by VB-Audio Software (donationware).
+- Built with [WPF-UI](https://github.com/lepoco/wpfui) and [NAudio](https://github.com/naudio/NAudio).

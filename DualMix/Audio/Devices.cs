@@ -57,18 +57,18 @@ public sealed record AudioFormat(int Channels, int SampleRate, int Bits, int Val
 
     public string Describe()
     {
-        var bits = IsFloat ? "32 bit float" : $"{ValidBits} bit";
+        var bits = IsFloat ? Loc.Get("Format.BitsFloat") : Loc.Format("Format.BitsInt", ValidBits);
         return $"{SampleRate / 1000.0:0.#} kHz · {bits} · {LayoutName(Channels, ChannelMask)}";
     }
 
     public static string LayoutName(int channels, uint mask) => (channels, mask) switch
     {
-        (1, _) => "mono",
-        (2, _) => "stereo",
-        (4, _) => "quadrifonico",
+        (1, _) => Loc.Get("Layout.Mono"),
+        (2, _) => Loc.Get("Layout.Stereo"),
+        (4, _) => Loc.Get("Layout.Quad"),
         (6, _) => "5.1",
         (8, _) => "7.1",
-        _ => $"{channels} canali",
+        _ => Loc.Format("Layout.Channels", channels),
     };
 
     public static uint DefaultMask(int channels) => channels switch
@@ -217,20 +217,25 @@ public static class Devices
         }
     }
 
-    /// <summary>The real output DualMix should use: the Sound Blaster AE-5 analog output when present.</summary>
-    public static DeviceInfo? FindPreferredOutput(IReadOnlyList<DeviceInfo> render)
+    /// <summary>The real output DualMix should use: prefers the active Windows default or best analog/headphone device on any PC.</summary>
+    public static DeviceInfo? FindPreferredOutput(IReadOnlyList<DeviceInfo> render, string? preferredId = null)
     {
-        static int Score(DeviceInfo d)
+        int Score(DeviceInfo d)
         {
-            if (d.IsVbCable) return -1;
+            if (d.IsVbCable) return -1000;
             int s = 0;
-            if (d.IsAe5) s += 100;
-            var n = d.Name.ToLowerInvariant();
-            if (n.Contains("spdif") || n.Contains("digital") || n.Contains("digitale")) s -= 50;
-            if (n.Contains("altoparlanti") || n.Contains("speakers") || n.Contains("cuffie") || n.Contains("headphones")) s += 10;
+            if (!string.IsNullOrEmpty(preferredId) && string.Equals(d.Id, preferredId, StringComparison.OrdinalIgnoreCase)) s += 200;
+            if (d.IsDefault) s += 100;
+            if (d.IsAe5) s += 15;
+            var n = (d.Name + " " + d.InterfaceName).ToLowerInvariant();
+            if (n.Contains("spdif") || n.Contains("optical") || n.Contains("digital") || n.Contains("digitale")) s -= 45;
+            if (n.Contains("hdmi") || n.Contains("displayport") || n.Contains("nvidia") || n.Contains("amd high definition") || n.Contains("intel(r) display")) s -= 35;
+            if (n.Contains("steam streaming") || n.Contains("oculus") || n.Contains("virtual")) s -= 60;
+            if (n.Contains("altoparlanti") || n.Contains("speakers") || n.Contains("cuffie") || n.Contains("headphones") || n.Contains("headset") || n.Contains("earphones") || n.Contains("auricolari")) s += 25;
+            if (n.Contains("usb") || n.Contains("dac") || n.Contains("realtek")) s += 10;
             return s;
         }
-        return render.Where(d => d.IsAe5 && Score(d) > 0).OrderByDescending(Score).FirstOrDefault();
+        return render.Where(d => !d.IsVbCable).OrderByDescending(Score).ThenByDescending(d => d.IsDefault).FirstOrDefault();
     }
 
     /// <summary>
@@ -289,7 +294,7 @@ public static class Devices
 
     public static string NameOf(string? id)
     {
-        if (string.IsNullOrEmpty(id)) return "(nessuno)";
+        if (string.IsNullOrEmpty(id)) return Loc.Get("Common.None");
         try
         {
             using var en = new MMDeviceEnumerator();
@@ -299,7 +304,7 @@ public static class Devices
         catch (Exception ex)
         {
             Log.Warn($"Cannot read name of device {id}", ex);
-            return "(non disponibile)";
+            return Loc.Get("Common.Unavailable");
         }
     }
 

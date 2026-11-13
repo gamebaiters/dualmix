@@ -71,6 +71,7 @@ jobs:
           name: DualMix-${{ env.VERSION }}
           path: |
             out/release/*
+            packaging/README.txt
             packaging/LEGGIMI.txt
           retention-days: 30
 
@@ -79,6 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cp packaging/README.txt out/release/README.txt
           cp packaging/LEGGIMI.txt out/release/LEGGIMI.txt
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" out/release/* --clobber

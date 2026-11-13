@@ -6,55 +6,54 @@
     </linearGradient>
   </defs>
   <rect x="1" y="1" width="1098" height="498" rx="16" fill="url(#panelBg)" stroke="#273043" stroke-width="1.5"/>
-  <text x="32" y="42" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700">Rotella della tastiera e scorciatoie — come si controlla tutto</text>
-  <text x="32" y="66" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14">Intercettazione globale (RegisterHotKey + hook tastiera) · All'avvio del PC riparte sempre su «Volume generale»</text>
+  <text x="32" y="42" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700">Keyboard Volume Knob &amp; Global Hotkeys — Instant Control</text>
+  <text x="32" y="66" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="14">Global interception (RegisterHotKey + low-level keyboard hook) · Always resets cleanly to «Master Volume» on PC startup</text>
 
   <!-- Left: Gestures -->
   <rect x="32" y="92" width="440" height="374" rx="14" fill="#182030" stroke="#2d3952" stroke-width="1.2"/>
-  <text x="54" y="124" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="17" font-weight="700">Azioni sulla rotella</text>
+  <text x="54" y="124" fill="#f8fafc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="17" font-weight="700">Knob Actions</text>
 
   <rect x="52" y="142" width="400" height="58" rx="10" fill="#111622" stroke="#2b364d" stroke-width="1"/>
-  <text x="70" y="166" fill="#60a5fa" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700">GIRA (Volume + / −)</text>
-  <text x="70" y="186" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Regola la funzione attiva (passo 1–10%, predefinito 5%)</text>
+  <text x="70" y="166" fill="#60a5fa" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700">TURN (Volume + / −)</text>
+  <text x="70" y="186" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Adjusts the active function (step 1–10%, default 5%)</text>
 
   <rect x="52" y="210" width="400" height="58" rx="10" fill="#111622" stroke="#2b364d" stroke-width="1"/>
-  <text x="70" y="234" fill="#ffa040" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700">PREMI 1× (Muto)</text>
-  <text x="70" y="254" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Silenzia/riattiva · Sul Mix silenzia tutto (o Bilanciato)</text>
+  <text x="70" y="234" fill="#ffa040" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700">PRESS 1× (Mute)</text>
+  <text x="70" y="254" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Mutes/unmutes · On Mix, single press mutes all (or Balanced)</text>
 
   <rect x="52" y="278" width="400" height="58" rx="10" fill="#111622" stroke="#2b364d" stroke-width="1"/>
-  <text x="70" y="302" fill="#4ade80" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700">PREMI 2×  /  CTRL+PREMI  /  HOTKEY</text>
-  <text x="70" y="322" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Passa alla funzione successiva nel ciclo (Ctrl+Alt+M/K)</text>
+  <text x="70" y="302" fill="#4ade80" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700">PRESS 2×  /  CTRL+PRESS  /  HOTKEY</text>
+  <text x="70" y="322" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Cycles to the next function (or Ctrl+Alt+M / Ctrl+Alt+K)</text>
 
   <rect x="52" y="346" width="400" height="58" rx="10" fill="#111622" stroke="#2b364d" stroke-width="1"/>
-  <text x="70" y="370" fill="#c084fc" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700">CTRL + GIRA  /  TASTI VIA (F13–F15)</text>
-  <text x="70" y="390" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Altra funzione al volo (Mix ↔ Volume) o tasti dedicati</text>
+  <text x="70" y="370" fill="#c084fc" font-family="Cascadia Mono, Consolas, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700">CTRL + TURN  /  VIA KEYS (F13–F15)</text>
+  <text x="70" y="390" fill="#cbd5e1" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Secondary function on the fly (Mix ↔ Master) or custom keys</text>
 
-  <text x="54" y="438" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Se un gioco blocca l'hook, DualMix rileva la variazione del volume</text>
-  <text x="54" y="454" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Windows, la annulla e applica il passo alla funzione scelta.</text>
+  <text x="54" y="438" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">If a fullscreen game suppresses hooks, DualMix detects the OS volume</text>
+  <text x="54" y="454" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">delta, reverts it immediately, and applies the step cleanly.</text>
 
   <!-- Right: 4 Functions -->
   <rect x="498" y="92" width="570" height="84" rx="12" fill="#60a5fa" fill-opacity="0.12" stroke="#60a5fa" stroke-width="1.6"/>
-  <text x="520" y="122" fill="#93c5fd" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">1. Volume generale</text>
-  <rect x="692" y="103" width="166" height="24" rx="12" fill="#60a5fa" fill-opacity="0.22" stroke="#60a5fa" stroke-width="1"/>
-  <text x="775" y="119" fill="#e0f2fe" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle">PREDEFINITA ALL'AVVIO</text>
-  <text x="520" y="146" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Gira: alza/abbassa il volume reale Windows sulla scheda audio</text>
-  <text x="520" y="165" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Premi: silenzia / riattiva l'uscita · Cambiabile in Rotella e tasti → Funzione all'avvio</text>
+  <text x="520" y="122" fill="#93c5fd" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">1. Master Volume</text>
+  <rect x="688" y="103" width="160" height="24" rx="12" fill="#60a5fa" fill-opacity="0.22" stroke="#60a5fa" stroke-width="1"/>
+  <text x="768" y="119" fill="#e0f2fe" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle">DEFAULT AT STARTUP</text>
+  <text x="520" y="146" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Turn: raises or lowers the real Windows volume on your output device</text>
+  <text x="520" y="165" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Press: mutes / unmutes output · Configurable under Knob &amp; Keys → Function at startup</text>
 
   <rect x="498" y="188" width="570" height="84" rx="12" fill="#ff7838" fill-opacity="0.10" stroke="#ff7838" stroke-width="1.5"/>
-  <text x="520" y="218" fill="#ffa040" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">2. Mix Game/Chat</text>
-  <rect x="676" y="199" width="160" height="24" rx="12" fill="#ff7838" fill-opacity="0.20" stroke="#ff7838" stroke-width="1"/>
-  <text x="756" y="215" fill="#ffedd5" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle">PREMI = MUTO DI TUTTO</text>
-  <text x="520" y="242" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Gira a sinistra: più Game · Gira a destra: più Chat (si ferma al centro «Bilanciato»)</text>
-  <text x="520" y="261" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Premi 1×: silenzia tutto (opzione per tornare a «Bilanciato» come in v2.1)</text>
+  <text x="520" y="218" fill="#ffa040" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">2. Game / Chat Mix</text>
+  <rect x="688" y="199" width="160" height="24" rx="12" fill="#ff7838" fill-opacity="0.20" stroke="#ff7838" stroke-width="1"/>
+  <text x="768" y="215" fill="#ffedd5" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="700" text-anchor="middle">PRESS = MUTE ALL</text>
+  <text x="520" y="242" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Turn left: louder Game · Turn right: louder Chat (center detent at «Balanced»)</text>
+  <text x="520" y="261" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Press 1×: mutes everything (optional toggle to snap back to «Balanced» instead)</text>
 
   <rect x="498" y="284" width="570" height="84" rx="12" fill="#182030" stroke="#fb923c" stroke-width="1.2"/>
-  <text x="520" y="314" fill="#fdba74" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">3. Volume Game</text>
-  <text x="520" y="338" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Gira: regola solo il livello del canale Game (giochi, musica, browser)</text>
-  <text x="520" y="357" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Premi: silenzia / riattiva solo il canale Game lasciando invariata la chat</text>
+  <text x="520" y="314" fill="#fdba74" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">3. Game Volume</text>
+  <text x="520" y="338" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Turn: adjusts only the Game channel (games, music, browsers)</text>
+  <text x="520" y="357" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Press: mutes / unmutes Game audio without affecting voice chat</text>
 
   <rect x="498" y="380" width="570" height="86" rx="12" fill="#182030" stroke="#40beff" stroke-width="1.2"/>
-  <text x="520" y="410" fill="#7dd3fc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">4. Volume Chat</text>
-  <text x="520" y="434" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Gira: regola solo il livello del canale Chat (Discord, TeamSpeak, chiamate)</text>
-  <text x="520" y="453" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Premi: silenzia / riattiva solo il canale Chat</text>
-
+  <text x="520" y="410" fill="#7dd3fc" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="16" font-weight="700">4. Chat Volume</text>
+  <text x="520" y="434" fill="#e2e8f0" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="13">Turn: adjusts only the Chat channel (Discord, TeamSpeak, calls)</text>
+  <text x="520" y="453" fill="#94a3b8" font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif" font-size="12.5">Press: mutes / unmutes voice chat only</text>
 </svg>
