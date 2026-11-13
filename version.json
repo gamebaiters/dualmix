@@ -1,7 +1,7 @@
 {
   "product": "DualMix",
-  "version": "2.4.0",
-  "url": "https://github.com/gamebaiters/dualmix/releases/download/v2.4.0/DualMix-2.4.0-win-x64.zip",
-  "sha256": "69b9b7b42c85c2a1e9e17c1fe97f9fc160939bf2fb3f70828cd0ea774bb14827",
-  "notes": "ci(release): install NSIS on windows-latest and require DualMix-Setup installer"
+  "version": "2.4.1",
+  "url": "https://github.com/gamebaiters/dualmix/releases/download/v2.4.1/DualMix-2.4.1-win-x64.zip",
+  "sha256": "b8db07c3af4111ef04555207e4a32f2ae607938ab5fbbfbc9dc103e51979c61e",
+  "notes": "DualMix rust-rewrite 2.4.1: fix UI interaction guard/WebWindow visibility, 0 warnings, and add real WASAPI audio E2E example"
 }
